@@ -38,6 +38,8 @@ const (
 )
 
 var defaultDialTimeout = 30 * time.Second
+// Keep retries lightweight, but avoid hammering the guest before the agent listener is ready.
+var defaultDialRetryInterval = 20 * time.Millisecond
 
 var hybridVSockPort uint32
 var hybridVSockErrors uint32 = 0
@@ -322,7 +324,9 @@ func parseGrpcHybridVSockAddr(sock string) (string, uint32, error) {
 // https://github.com/grpc/grpc/blob/master/doc/connection-backoff.md
 func commonDialer(timeout time.Duration, dialFunc func() (net.Conn, error), timeoutErrMsg error) (net.Conn, error) {
 	t := time.NewTimer(timeout)
-	cancel := make(chan bool)
+	defer t.Stop()
+
+	cancel := make(chan struct{})
 	ch := make(chan net.Conn)
 	go func() {
 		for {
@@ -344,18 +348,24 @@ func commonDialer(timeout time.Duration, dialFunc func() (net.Conn, error), time
 				}
 				return
 			}
+
+			retryTimer := time.NewTimer(defaultDialRetryInterval)
+			select {
+			case <-cancel:
+				if !retryTimer.Stop() {
+					<-retryTimer.C
+				}
+				return
+			case <-retryTimer.C:
+			}
 		}
 	}()
 
 	var conn net.Conn
-	var ok bool
 	select {
-	case conn, ok = <-ch:
-		if !ok {
-			return nil, timeoutErrMsg
-		}
+	case conn = <-ch:
 	case <-t.C:
-		cancel <- true
+		close(cancel)
 		return nil, timeoutErrMsg
 	}
 
