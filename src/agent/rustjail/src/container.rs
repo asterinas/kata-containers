@@ -1200,7 +1200,7 @@ impl BaseContainer for LinuxContainer {
             .env(CWFD_FD, format!("{cwfd}"))
             .env(CLOG_FD, format!("{cfd_log}"))
             .env(CONSOLE_SOCKET_FD, console_name)
-            .env(PIDNS_ENABLED, format!("{}", pidns.enabled));
+            .env(PIDNS_ENABLED, format!("{}", false));
 
         if p.init {
             child = child.env(FIFO_FD, format!("{fifofd}"));
