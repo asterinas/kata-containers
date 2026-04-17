@@ -378,7 +378,7 @@ async fn start_sandbox(
     // Initialize unique sandbox structure.
     let s = Sandbox::new(logger).context("Failed to create sandbox")?;
     if init_mode {
-        s.rtnl.handle_localhost().await?;
+        // s.rtnl.handle_localhost().await?;
     }
 
     #[cfg(feature = "agent-policy")]
