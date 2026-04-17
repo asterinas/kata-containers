@@ -20,6 +20,7 @@ ASTERINAS_REPOSITORY="${ASTERINAS_REPOSITORY:-}"
 ASTERINAS_REF="${ASTERINAS_REF:-}"
 ASTERINAS_BUILDER_IMAGE="${ASTERINAS_BUILDER_IMAGE:-}"
 ASTERINAS_KERNEL="${ASTERINAS_KERNEL:-}"
+ASTERINAS_TDX_KERNEL="${ASTERINAS_TDX_KERNEL:-}"
 
 BUILD_ROOT="${BUILD_ROOT:-${repo_root_dir}/build/asterinas-release}"
 DOWNLOAD_DIR="${BUILD_ROOT}/downloads"
@@ -37,7 +38,11 @@ RELEASE_NOTES="${DIST_DIR}/${RELEASE_BASENAME}.release-notes.md"
 
 KATA_SHARE_DIR_REL="opt/kata/share/kata-containers"
 KATA_DEFAULTS_DIR_REL="opt/kata/share/defaults/kata-containers"
-ASTERINAS_KERNEL_PATH="/opt/kata/share/kata-containers/aster-kernel-osdk-bin.qemu_elf"
+KATA_TOOLS_DIR_REL="${KATA_SHARE_DIR_REL}/tools/kata"
+ASTERINAS_KERNEL_NAME="aster-kernel-osdk-bin.qemu_elf"
+ASTERINAS_TDX_KERNEL_NAME="${ASTERINAS_KERNEL_NAME}-tdx"
+ASTERINAS_KERNEL_PATH="/opt/kata/share/kata-containers/${ASTERINAS_KERNEL_NAME}"
+ASTERINAS_TDX_KERNEL_PATH="${ASTERINAS_KERNEL_PATH}-tdx"
 INITRD_PATH="/opt/kata/share/kata-containers/kata-containers-initrd.img"
 LINUX_TEST_KERNEL_LINK="vmlinux-test.container"
 
@@ -81,6 +86,11 @@ path_was_rebuilt() {
 		opt/kata/share/kata-containers/kata-containers-initrd.img|\
 		opt/kata/share/kata-containers/"${initrd_target_name}")
 			return 0
+			;;
+		opt/kata/share/kata-containers/aster-kernel-osdk-bin.qemu_elf-tdx)
+			if [ -n "${ASTERINAS_TDX_KERNEL}" ]; then
+				return 0
+			fi
 			;;
 		opt/kata/bin/kata-runtime|\
 		opt/kata/bin/containerd-shim-kata-v2)
@@ -246,7 +256,7 @@ prune_asterinas_bundle() {
 		[ -e "${path}" ] || [ -L "${path}" ] || continue
 		keep=false
 		case "$(basename "${path}")" in
-			aster-kernel-osdk-bin.qemu_elf|\
+			"${ASTERINAS_KERNEL_NAME}"|\
 			"${initrd_target_name}"|\
 			kata-containers-initrd.img|\
 			vmlinux.container|\
@@ -255,12 +265,28 @@ prune_asterinas_bundle() {
 			"${LINUX_TEST_KERNEL_LINK}")
 				keep=true
 				;;
+			"${ASTERINAS_TDX_KERNEL_NAME}")
+				if [ -n "${ASTERINAS_TDX_KERNEL}" ]; then
+					keep=true
+				fi
+				;;
 		esac
 
 		if ! ${keep}; then
 			rm -rf "${path}"
 		fi
 	done
+}
+
+copy_kata_helpers_into_release() {
+	local source_dir="${repo_root_dir}/tools/kata"
+	local dest_dir="${STAGING_DIR}/${KATA_TOOLS_DIR_REL}"
+
+	[ -d "${source_dir}" ] || die "missing kata helper directory: ${source_dir}"
+
+	rm -rf "${dest_dir}"
+	install -d -m 0755 "$(dirname "${dest_dir}")"
+	cp -a "${source_dir}" "${dest_dir}"
 }
 
 maybe_build_runtime() {
@@ -313,6 +339,14 @@ build_initrd() {
 }
 
 write_manifest() {
+	local tdx_kernel_manifest=""
+
+	if [ -n "${ASTERINAS_TDX_KERNEL}" ]; then
+		tdx_kernel_manifest="  \"asterinas_tdx_kernel_artifact\": \"$(basename "${ASTERINAS_TDX_KERNEL}")\",
+  \"guest_tdx_kernel_path\": \"${ASTERINAS_TDX_KERNEL_PATH}\",
+"
+	fi
+
 	cat > "${MANIFEST_FILE}" <<EOF
 {
   "built_at_utc": "${BUILD_TIME_UTC}",
@@ -325,8 +359,9 @@ write_manifest() {
   "asterinas_ref": "${ASTERINAS_REF}",
   "asterinas_builder_image": "${ASTERINAS_BUILDER_IMAGE}",
   "asterinas_kernel_artifact": "$(basename "${ASTERINAS_KERNEL}")",
-  "guest_kernel_path": "/opt/kata/share/kata-containers/aster-kernel-osdk-bin.qemu_elf",
+${tdx_kernel_manifest}  "guest_kernel_path": "${ASTERINAS_KERNEL_PATH}",
   "guest_initrd_path": "/opt/kata/share/kata-containers/kata-containers-initrd.img",
+  "kata_helper_dir": "/opt/kata/share/kata-containers/tools/kata",
   "guest_rootfs_os": "${GUEST_OS_NAME}",
   "guest_rootfs_version": "${GUEST_OS_VERSION}",
   "runtime_rebuilt": ${RUNTIME_REBUILT},
@@ -340,27 +375,33 @@ write_release_notes() {
 
 	asset_sha="$(sha256sum "${RELEASE_ASSET}" | awk '{print $1}')"
 
-	cat > "${RELEASE_NOTES}" <<EOF
-# Asterinas Kata release
-
-- Kata version: \`${VERSION}\`
-- Architecture: \`${ARCHITECTURE}\`
-- Base tarball: \`${BASE_TARBALL_URL}\`
-- Kata commit: \`${KATA_COMMIT}\`
-- Asterinas repo/ref: \`${ASTERINAS_REPOSITORY}@${ASTERINAS_REF}\`
-- Asterinas builder image: \`${ASTERINAS_BUILDER_IMAGE}\`
-- Guest kernel: \`/opt/kata/share/kata-containers/aster-kernel-osdk-bin.qemu_elf\`
-- Guest initrd: \`/opt/kata/share/kata-containers/kata-containers-initrd.img\`
-- Guest rootfs rebuild: \`${GUEST_OS_NAME}:${GUEST_OS_VERSION}\`
-- Runtime rebuilt: \`${RUNTIME_REBUILT}\`
-- Runtime rebuild reason: \`${RUNTIME_REBUILD_REASON}\`
-- Asset SHA256: \`${asset_sha}\`
-EOF
+	{
+		printf '# Asterinas Kata release\n\n'
+		printf -- '- Kata version: `%s`\n' "${VERSION}"
+		printf -- '- Architecture: `%s`\n' "${ARCHITECTURE}"
+		printf -- '- Base tarball: `%s`\n' "${BASE_TARBALL_URL}"
+		printf -- '- Kata commit: `%s`\n' "${KATA_COMMIT}"
+		printf -- '- Asterinas repo/ref: `%s@%s`\n' "${ASTERINAS_REPOSITORY}" "${ASTERINAS_REF}"
+		printf -- '- Asterinas builder image: `%s`\n' "${ASTERINAS_BUILDER_IMAGE}"
+		printf -- '- Guest kernel: `%s`\n' "${ASTERINAS_KERNEL_PATH}"
+		if [ -n "${ASTERINAS_TDX_KERNEL}" ]; then
+			printf -- '- Guest TDX kernel: `%s`\n' "${ASTERINAS_TDX_KERNEL_PATH}"
+		fi
+		printf -- '- Guest initrd: `%s`\n' "${INITRD_PATH}"
+		printf -- '- Kata helper scripts: `/opt/kata/share/kata-containers/tools/kata`\n'
+		printf -- '- Guest rootfs rebuild: `%s:%s`\n' "${GUEST_OS_NAME}" "${GUEST_OS_VERSION}"
+		printf -- '- Runtime rebuilt: `%s`\n' "${RUNTIME_REBUILT}"
+		printf -- '- Runtime rebuild reason: `%s`\n' "${RUNTIME_REBUILD_REASON}"
+		printf -- '- Asset SHA256: `%s`\n' "${asset_sha}"
+	} > "${RELEASE_NOTES}"
 }
 
 require_cmd awk curl find git grep make readlink sed sort sudo tar zstd sha256sum install cpio
 [ -n "${ASTERINAS_KERNEL}" ] || die "ASTERINAS_KERNEL must be set"
 [ -f "${ASTERINAS_KERNEL}" ] || die "Asterinas kernel artifact not found: ${ASTERINAS_KERNEL}"
+if [ -n "${ASTERINAS_TDX_KERNEL}" ]; then
+	[ -f "${ASTERINAS_TDX_KERNEL}" ] || die "Asterinas TDX kernel artifact not found: ${ASTERINAS_TDX_KERNEL}"
+fi
 
 mkdir -p "${DOWNLOAD_DIR}" "${DIST_DIR}"
 rm -rf "${STAGING_DIR}"
@@ -396,9 +437,12 @@ rebuilt_initrd="${BUILD_ROOT}/${initrd_target_name}"
 build_initrd "${rebuilt_initrd}"
 install -m 0644 "${rebuilt_initrd}" "${share_dir}/${initrd_target_name}"
 
-install -m 0755 "${ASTERINAS_KERNEL}" "${share_dir}/aster-kernel-osdk-bin.qemu_elf"
-ln -sfn "aster-kernel-osdk-bin.qemu_elf" "${share_dir}/vmlinuz.container"
-ln -sfn "aster-kernel-osdk-bin.qemu_elf" "${share_dir}/vmlinux.container"
+install -m 0755 "${ASTERINAS_KERNEL}" "${share_dir}/${ASTERINAS_KERNEL_NAME}"
+if [ -n "${ASTERINAS_TDX_KERNEL}" ]; then
+	install -m 0755 "${ASTERINAS_TDX_KERNEL}" "${share_dir}/${ASTERINAS_TDX_KERNEL_NAME}"
+fi
+ln -sfn "${ASTERINAS_KERNEL_NAME}" "${share_dir}/vmlinuz.container"
+ln -sfn "${ASTERINAS_KERNEL_NAME}" "${share_dir}/vmlinux.container"
 ln -sfn "${linux_test_kernel}" "${share_dir}/${LINUX_TEST_KERNEL_LINK}"
 
 maybe_build_runtime
@@ -408,6 +452,7 @@ patch_qemu_config "${defaults_dir}/configuration-qemu.toml" "${defaults_dir}/con
 ln -sfn "configuration-asterinas.toml" "${defaults_dir}/configuration.toml"
 
 prune_asterinas_bundle "${defaults_dir}" "${runtime_rs_defaults_dir}" "${share_dir}" "${linux_test_kernel}"
+copy_kata_helpers_into_release
 
 tar \
 	--sort=name \
