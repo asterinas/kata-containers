@@ -71,8 +71,68 @@ emit_output() {
 	fi
 }
 
-append_summary() {
-	printf '%s\n' "$*" >> "${BUILD_SUMMARY}"
+path_was_rebuilt() {
+	local path="$1"
+
+	case "${path}" in
+		opt/kata/share/kata-containers/aster-kernel-osdk-bin.qemu_elf|\
+		opt/kata/share/kata-containers/vmlinux.container|\
+		opt/kata/share/kata-containers/vmlinuz.container|\
+		opt/kata/share/kata-containers/kata-containers-initrd.img|\
+		opt/kata/share/kata-containers/"${initrd_target_name}")
+			return 0
+			;;
+		opt/kata/bin/kata-runtime|\
+		opt/kata/bin/containerd-shim-kata-v2)
+			if is_true "${RUNTIME_REBUILT}"; then
+				return 0
+			fi
+			;;
+	esac
+
+	return 1
+}
+
+write_build_summary() {
+	local display_name
+	local i
+	local indent
+	local name
+	local path
+	local slash_prefix
+	local target
+
+	{
+		printf '# Package contents\n\n'
+		printf -- '- Runtime rebuild: `%s` (`%s`)\n' "${RUNTIME_REBUILT}" "${RUNTIME_REBUILD_REASON}"
+		printf -- '- Files tagged `(rebuild)` were rebuilt in this workflow.\n\n'
+		printf '```text\n'
+		printf '.\n'
+
+		while IFS= read -r -d '' path; do
+			name="${path##*/}"
+			slash_prefix="${path//[^\/]/}"
+			indent=""
+			for ((i = 0; i < ${#slash_prefix}; i++)); do
+				indent+="    "
+			done
+
+			display_name="${name}"
+			if [ -L "${STAGING_DIR}/${path}" ]; then
+				target="$(readlink "${STAGING_DIR}/${path}")"
+				display_name="${display_name} -> ${target}"
+			elif [ -d "${STAGING_DIR}/${path}" ]; then
+				display_name="${display_name}/"
+			fi
+			if path_was_rebuilt "${path}"; then
+				display_name="${display_name} (rebuild)"
+			fi
+
+			printf '%s%s\n' "${indent}" "${display_name}"
+		done < <(cd "${STAGING_DIR}" && find . -mindepth 1 -printf '%P\0' | sort -z)
+
+		printf '```\n'
+	} > "${BUILD_SUMMARY}"
 }
 
 infer_guest_rootfs() {
@@ -224,7 +284,6 @@ maybe_build_runtime() {
 		return 0
 	fi
 
-	append_summary "- Rebuilding \`kata-runtime\`: ${RUNTIME_REBUILD_REASON}"
 	make -C "${repo_root_dir}/src/runtime" build
 	make -C "${repo_root_dir}/src/runtime" PREFIX=/opt/kata DESTDIR="${STAGING_DIR}" install
 }
@@ -310,20 +369,8 @@ mkdir -p "${STAGING_DIR}"
 BUILD_TIME_UTC="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 KATA_COMMIT="$(git -C "${repo_root_dir}" rev-parse HEAD)"
 
-: > "${BUILD_SUMMARY}"
-append_summary "# Asterinas Kata release build"
-append_summary
-append_summary "- Time (UTC): \`${BUILD_TIME_UTC}\`"
-append_summary "- Kata version: \`${VERSION}\`"
-append_summary "- Kata commit: \`${KATA_COMMIT}\`"
-append_summary "- Base tarball URL: \`${BASE_TARBALL_URL}\`"
-append_summary "- Asterinas repo/ref: \`${ASTERINAS_REPOSITORY}@${ASTERINAS_REF}\`"
-append_summary "- Asterinas builder image: \`${ASTERINAS_BUILDER_IMAGE}\`"
-
-append_summary "- Downloading official Kata base tarball"
 curl --fail --location --silent --show-error "${BASE_TARBALL_URL}" --output "${BASE_TARBALL}"
 
-append_summary "- Extracting base tarball into staging"
 tar -I zstd -xf "${BASE_TARBALL}" -C "${STAGING_DIR}"
 
 share_dir="${STAGING_DIR}/${KATA_SHARE_DIR_REL}"
@@ -344,31 +391,24 @@ else
 	initrd_target_name="kata-containers-initrd.img"
 fi
 infer_guest_rootfs "${initrd_target_name}"
-append_summary "- Rebuilding initrd from \`${GUEST_OS_NAME}:${GUEST_OS_VERSION}\` rootfs"
 
 rebuilt_initrd="${BUILD_ROOT}/${initrd_target_name}"
 build_initrd "${rebuilt_initrd}"
 install -m 0644 "${rebuilt_initrd}" "${share_dir}/${initrd_target_name}"
 
-append_summary "- Installing Asterinas guest kernel"
 install -m 0755 "${ASTERINAS_KERNEL}" "${share_dir}/aster-kernel-osdk-bin.qemu_elf"
 ln -sfn "aster-kernel-osdk-bin.qemu_elf" "${share_dir}/vmlinuz.container"
 ln -sfn "aster-kernel-osdk-bin.qemu_elf" "${share_dir}/vmlinux.container"
 ln -sfn "${linux_test_kernel}" "${share_dir}/${LINUX_TEST_KERNEL_LINK}"
 
 maybe_build_runtime
-if ! is_true "${RUNTIME_REBUILT}"; then
-	append_summary "- Reusing official \`kata-runtime\` binaries"
-fi
 
-append_summary "- Creating default Asterinas configs"
 patch_qemu_config "${defaults_dir}/configuration-qemu.toml" "${defaults_dir}/configuration-asterinas.toml" "${ASTERINAS_KERNEL_PATH}"
 patch_qemu_config "${defaults_dir}/configuration-qemu.toml" "${defaults_dir}/configuration-qemu.toml" "/opt/kata/share/kata-containers/${LINUX_TEST_KERNEL_LINK}"
 ln -sfn "configuration-asterinas.toml" "${defaults_dir}/configuration.toml"
 
 prune_asterinas_bundle "${defaults_dir}" "${runtime_rs_defaults_dir}" "${share_dir}" "${linux_test_kernel}"
 
-append_summary "- Packaging release asset"
 tar \
 	--sort=name \
 	--owner=0 \
@@ -381,6 +421,7 @@ tar \
 
 write_manifest
 write_release_notes
+write_build_summary
 sha256sum "${RELEASE_ASSET}" "${MANIFEST_FILE}" "${BUILD_SUMMARY}" "${RELEASE_NOTES}" > "${CHECKSUMS_FILE}"
 
 cat "${BUILD_SUMMARY}" >> "${GITHUB_STEP_SUMMARY:-/dev/null}" 2>/dev/null || true

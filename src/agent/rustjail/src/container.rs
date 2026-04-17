@@ -68,7 +68,7 @@ use crate::sync::{read_sync, write_count, write_sync, SYNC_DATA, SYNC_FAILED, SY
 use crate::sync_with_async::{read_async, write_async};
 use async_trait::async_trait;
 use rlimit::{setrlimit, Resource, Rlim};
-use tokio::io::AsyncBufReadExt;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 
 use kata_sys_util::hooks::HookStates;
@@ -352,8 +352,12 @@ pub fn init_child() {
 }
 
 fn do_init_child(cwfd: RawFd) -> Result<()> {
+    println!("do init child, cwfd = {:?}", cwfd);
+
     lazy_static::initialize(&NAMESPACES);
     lazy_static::initialize(&DEFAULT_DEVICES);
+
+    println!("init namespaces, cwfd = {:?}", cwfd);
 
     let init = std::env::var(INIT)?.eq(format!("{}", true).as_str());
 
@@ -377,6 +381,8 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
         }
     }
 
+    println!("before fork");
+
     match unsafe { fork() } {
         Ok(ForkResult::Parent { child, .. }) => {
             log_child!(
@@ -396,24 +402,29 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
             )));
         }
     }
+
+    println!("child process start run");
     log_child!(cfd_log, "child process start run");
     let buf = read_sync(crfd)?;
     let spec_str = std::str::from_utf8(&buf)?;
     let spec: oci::Spec = serde_json::from_str(spec_str)?;
     log_child!(cfd_log, "notify parent to send oci process");
     write_sync(cwfd, SYNC_SUCCESS, "")?;
+    println!("notify parent to send oci process 111");
 
     let buf = read_sync(crfd)?;
     let process_str = std::str::from_utf8(&buf)?;
     let oci_process: oci::Process = serde_json::from_str(process_str)?;
     log_child!(cfd_log, "notify parent to send oci state");
     write_sync(cwfd, SYNC_SUCCESS, "")?;
+    println!("notify parent to send oci process 222");
 
     let buf = read_sync(crfd)?;
     let state_str = std::str::from_utf8(&buf)?;
     let mut state: OCIState = serde_json::from_str(state_str)?;
     log_child!(cfd_log, "notify parent to send cgroup manager");
     write_sync(cwfd, SYNC_SUCCESS, "")?;
+    println!("notify parent to send cgroup manager");
 
     let buf = read_sync(crfd)?;
     let cm_str = std::str::from_utf8(&buf)?;
@@ -421,6 +432,8 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
     // deserialize cm_str into FsManager and SystemdManager separately
     let fs_cm: Result<FsManager, serde_json::Error> = serde_json::from_str(cm_str);
     let systemd_cm: Result<SystemdManager, serde_json::Error> = serde_json::from_str(cm_str);
+
+    println!("start setup console socket");
 
     #[cfg(feature = "standard-oci-runtime")]
     let csocket_fd = console::setup_console_socket(&std::env::var(CONSOLE_SOCKET_FD)?)?;
@@ -438,6 +451,8 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
 
     // get namespace vector to join/new
     let nses = get_namespaces(linux);
+
+    println!("nses = {:?}", nses);
 
     let mut userns = false;
     let mut to_new = CloneFlags::empty();
@@ -474,9 +489,14 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
         }
     }
 
+    println!("to new = {:?}", to_new);
+
     if to_new.contains(CloneFlags::CLONE_NEWUSER) {
         userns = true;
     }
+
+    println!("userns = {}", userns);
+    println!("write oom score adj");
 
     if p.oom_score_adj().is_some() {
         log_child!(cfd_log, "write oom score {}", p.oom_score_adj().unwrap());
@@ -485,6 +505,8 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
             p.oom_score_adj().unwrap().to_string().as_bytes(),
         )?;
     }
+
+    println!("set rlimit");
 
     // set rlimit
     let default_rlimits = Vec::new();
@@ -497,6 +519,8 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
             Rlim::from_raw(rl.hard()),
         )?;
     }
+
+    println!("set non-dumpable");
 
     //
     // Make the process non-dumpable, to avoid various race conditions that
@@ -516,9 +540,12 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
     }
 
     if userns {
+        println!("enter new user namespace");
         log_child!(cfd_log, "enter new user namespace");
         sched::unshare(CloneFlags::CLONE_NEWUSER)?;
     }
+
+    println!("notify parent unshare user ns completed");
 
     log_child!(cfd_log, "notify parent unshare user ns completed");
     // notify parent unshare user ns completed.
@@ -595,6 +622,7 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
 
     let rootfs = spec.root().as_ref().unwrap().path().display().to_string();
 
+    println!("setup rootfs {}", &rootfs);
     log_child!(cfd_log, "setup rootfs {}", &rootfs);
     let root = fs::canonicalize(&rootfs)?;
     let rootfs = root.to_str().unwrap();
@@ -614,6 +642,8 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
             mount::init_rootfs(cfd_log, &spec, &fs_cm.paths, &fs_cm.mounts, bind_device)?;
         }
     }
+
+    println!("notify parent to run prestart hooks");
 
     if init {
         // notify parent to run prestart hooks
@@ -649,6 +679,8 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
             )?;
         }
     }
+
+    println!("start pivot root");
 
     if to_new.contains(CloneFlags::CLONE_NEWNS) {
         // unistd::chroot(rootfs)?;
@@ -803,6 +835,8 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
     }
 
     let exec_file = Path::new(&args[0]);
+
+    println!( "process command: {:?}", &args);
     log_child!(cfd_log, "process command: {:?}", &args);
     if !exec_file.exists() {
         find_file(exec_file).ok_or_else(|| anyhow!("the file {} was not found", &args[0]))?;
@@ -810,6 +844,7 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
 
     // notify parent that the child's ready to start
     write_sync(cwfd, SYNC_SUCCESS, "")?;
+    println!("ready to run exec");
     log_child!(cfd_log, "ready to run exec");
     let _ = unistd::close(cfd_log);
     let _ = unistd::close(crfd);
@@ -825,7 +860,27 @@ fn do_init_child(cwfd: RawFd) -> Result<()> {
                 }
             }
             else {
+                let current_pid = unistd::getpid();
+                println!(
+                    "setsid 3 before pid={} pgid(0)={} pgid({})={} sid({})={}",
+                    current_pid.as_raw(),
+                    unsafe { libc::getpgid(0) },
+                    current_pid.as_raw(),
+                    unsafe { libc::getpgid(current_pid.as_raw()) },
+                    current_pid.as_raw(),
+                    unsafe { libc::getsid(current_pid.as_raw()) }
+                );
                 unistd::setsid().context("create a new session")?;
+                let current_pid = unistd::getpid();
+                println!(
+                    "setsid 3 after pid={} pgid(0)={} pgid({})={} sid({})={}",
+                    current_pid.as_raw(),
+                    unsafe { libc::getpgid(0) },
+                    current_pid.as_raw(),
+                    unsafe { libc::getpgid(current_pid.as_raw()) },
+                    current_pid.as_raw(),
+                    unsafe { libc::getsid(current_pid.as_raw()) }
+                );
                 unsafe { libc::ioctl(0, libc::TIOCSCTTY) };
             }
         }
@@ -1089,7 +1144,25 @@ impl BaseContainer for LinuxContainer {
                     let logger = logger.clone();
                     let term_closer = term_closer.clone();
                     tokio::spawn(async move {
-                        let res = tokio::io::copy(&mut stdin_stream, &mut term_master).await;
+                        let res = async {
+                            let mut total = 0u64;
+                            let mut buf = [0u8; 8192];
+                            loop {
+                                let bytes = stdin_stream.read(&mut buf).await?;
+                                if bytes == 0 {
+                                    break Ok::<u64, std::io::Error>(total);
+                                }
+                                println!(
+                                    "vsock recv container tty stdin bytes={} text={:?} raw={:?}",
+                                    bytes,
+                                    String::from_utf8_lossy(&buf[..bytes]),
+                                    &buf[..bytes]
+                                );
+                                term_master.write_all(&buf[..bytes]).await?;
+                                total += bytes as u64;
+                            }
+                        }
+                        .await;
                         debug!(logger, "copy from stdin to term_master end: {:?}", res);
 
                         std::mem::forget(term_master); // Avoid auto closing of term_master
@@ -1104,7 +1177,29 @@ impl BaseContainer for LinuxContainer {
                     let logger = logger.clone();
                     let term_closer = term_closer;
                     tokio::spawn(async move {
-                        let res = tokio::io::copy(&mut term_master, &mut stdout_stream).await;
+                        let res = async {
+                            let mut total = 0u64;
+                            let mut buf = [0u8; 8192];
+                            loop {
+                                let bytes = term_master.read(&mut buf).await?;
+                                if bytes == 0 {
+                                    break Ok::<u64, std::io::Error>(total);
+                                }
+                                println!(
+                                    "vsock send container tty stdout bytes={} text={:?} raw={:?}",
+                                    bytes,
+                                    String::from_utf8_lossy(&buf[..bytes]),
+                                    &buf[..bytes]
+                                );
+                                tokio::io::AsyncWriteExt::write_all(
+                                    &mut stdout_stream,
+                                    &buf[..bytes],
+                                )
+                                .await?;
+                                total += bytes as u64;
+                            }
+                        }
+                        .await;
                         debug!(logger, "copy from term_master to stdout end: {:?}", res);
                         wgw_output.done();
                         std::mem::forget(term_master); // Avoid auto closing of term_master
@@ -1130,7 +1225,25 @@ impl BaseContainer for LinuxContainer {
                     let mut parent_stdin = unsafe { File::from_raw_fd(p.parent_stdin.unwrap()) };
                     let logger = logger.clone();
                     tokio::spawn(async move {
-                        let res = tokio::io::copy(&mut stdin_stream, &mut parent_stdin).await;
+                        let res = async {
+                            let mut total = 0u64;
+                            let mut buf = [0u8; 8192];
+                            loop {
+                                let bytes = stdin_stream.read(&mut buf).await?;
+                                if bytes == 0 {
+                                    break Ok::<u64, std::io::Error>(total);
+                                }
+                                println!(
+                                    "vsock recv container stdin bytes={} text={:?} raw={:?}",
+                                    bytes,
+                                    String::from_utf8_lossy(&buf[..bytes]),
+                                    &buf[..bytes]
+                                );
+                                parent_stdin.write_all(&buf[..bytes]).await?;
+                                total += bytes as u64;
+                            }
+                        }
+                        .await;
                         debug!(logger, "copy from stdin to term_master end: {:?}", res);
                     });
                 }
@@ -1142,7 +1255,29 @@ impl BaseContainer for LinuxContainer {
                     let mut parent_stdout = unsafe { File::from_raw_fd(p.parent_stdout.unwrap()) };
                     let logger = logger.clone();
                     tokio::spawn(async move {
-                        let res = tokio::io::copy(&mut parent_stdout, &mut stdout_stream).await;
+                        let res = async {
+                            let mut total = 0u64;
+                            let mut buf = [0u8; 8192];
+                            loop {
+                                let bytes = parent_stdout.read(&mut buf).await?;
+                                if bytes == 0 {
+                                    break Ok::<u64, std::io::Error>(total);
+                                }
+                                println!(
+                                    "vsock send container stdout bytes={} text={:?} raw={:?}",
+                                    bytes,
+                                    String::from_utf8_lossy(&buf[..bytes]),
+                                    &buf[..bytes]
+                                );
+                                tokio::io::AsyncWriteExt::write_all(
+                                    &mut stdout_stream,
+                                    &buf[..bytes],
+                                )
+                                .await?;
+                                total += bytes as u64;
+                            }
+                        }
+                        .await;
                         debug!(
                             logger,
                             "copy from parent_stdout to stdout stream end: {:?}", res
@@ -1158,7 +1293,29 @@ impl BaseContainer for LinuxContainer {
                     let mut parent_stderr = unsafe { File::from_raw_fd(p.parent_stderr.unwrap()) };
                     let logger = logger.clone();
                     tokio::spawn(async move {
-                        let res = tokio::io::copy(&mut parent_stderr, &mut stderr_stream).await;
+                        let res = async {
+                            let mut total = 0u64;
+                            let mut buf = [0u8; 8192];
+                            loop {
+                                let bytes = parent_stderr.read(&mut buf).await?;
+                                if bytes == 0 {
+                                    break Ok::<u64, std::io::Error>(total);
+                                }
+                                println!(
+                                    "vsock send container stderr bytes={} text={:?} raw={:?}",
+                                    bytes,
+                                    String::from_utf8_lossy(&buf[..bytes]),
+                                    &buf[..bytes]
+                                );
+                                tokio::io::AsyncWriteExt::write_all(
+                                    &mut stderr_stream,
+                                    &buf[..bytes],
+                                )
+                                .await?;
+                                total += bytes as u64;
+                            }
+                        }
+                        .await;
                         debug!(
                             logger,
                             "copy from parent_stderr to stderr stream end: {:?}", res
