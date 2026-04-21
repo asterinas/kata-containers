@@ -70,6 +70,7 @@ jobs:
           path: asterinas
 
       - name: Build qemu-direct Kernels
+        shell: bash
         run: |
           set -euo pipefail
 
