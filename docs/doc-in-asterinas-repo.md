@@ -63,7 +63,7 @@ Kernel developers typically use the `asterinas/asterinas` container image. When 
 # Assume you have already cloned the Asterinas source locally.
 ASTERINAS_SRC=$HOME/asterinas
 # Clone the kata-containers repository locally as well.
-cd $HOME && git clone https://github.com/jjf-dev/kata-containers.git
+cd $HOME && git clone https://github.com/asterinas/kata-containers.git
 KATA_SRC=$HOME/kata-containers
 docker run --rm -it \
     --cgroupns host \

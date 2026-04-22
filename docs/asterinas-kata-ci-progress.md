@@ -111,7 +111,7 @@
   2. Update `release-asterinas-kata-bundle` so the imported scripts are also included in the release output.
   3. Add a new workflow that builds an `asterinas/kata` image from the upstream `asterinas/asterinas` base image, runs `kata_env.sh install`, copies all imported scripts into `/root/asterinas/tools/kata`, and pushes the result to Docker Hub.
 - Found the current repo already contains `.github/workflows/release-asterinas-kata-bundle.yml`.
-- Found Git remote `origin` points to `git@github.com:jjf-dev/kata-containers.git`.
+- Found Git remote `origin` points to `git@github.com:asterinas/kata-containers.git`.
 - Next step: inspect PR `jjf-dev/asterinas#57` with `gh` and map the required files into this repository.
 
 ## 2026-04-17 Source import findings
@@ -154,7 +154,7 @@
 
 ## 2026-04-17 PR and CI observation
 
-- Created branch `kata-ci-release-image` and opened PR `https://github.com/jjf-dev/kata-containers/pull/21` against base branch `asterinas`.
+- Created branch `kata-ci-release-image` and opened PR `https://github.com/asterinas/kata-containers/pull/21` against base branch `asterinas`.
 - Initial local commit: `16fb051c0` (`Add Kata with Asterinas as the Guest Kernel CI and image workflows`).
 - Next step: observe the GitHub Actions runs for this PR and record any failures or conclusions here.
 
