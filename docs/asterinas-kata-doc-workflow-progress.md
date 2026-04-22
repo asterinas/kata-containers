@@ -64,6 +64,7 @@
   - per latest review, the CI-only prewarm/prebuild shortcut has been removed from `.github/workflows/test-asterinas-kata-docs.yml` so the kernel-developer path now goes back to launching the documented `asterinas/asterinas` image directly during replay
   - the image-publishing responsibility is now kept in a single place: `.github/workflows/test-asterinas-kata.yml` no longer builds or pushes `asterinas/kata` for its published-image matrix, and that responsibility stays with `.github/workflows/publish-asterinas-kata-image.yml`
   - the duplicated Asterinas image / release-asset resolution logic has now been centralized in `tools/kata/resolve_release_assets.sh`, and `test-asterinas-kata.yml`, `test-asterinas-kata-docs.yml`, and `publish-asterinas-kata-image.yml` all call that shared helper instead of carrying near-identical inline shell snippets
+  - after moving the repo to `asterinas/kata-containers`, the shared resolver could no longer use the new repo's `GITHUB_TOKEN` to query `jjf-dev/asterinas` metadata. The resolver now derives `asterinas_builder_image`, `docker_image_version`, and `asterinas_version` from the current repository's latest release manifest instead, so it no longer depends on cross-repository API access
 - Next steps:
   - run a final quick local end-user replay after the latest script cleanup
   - static-check the new workflow and script changes

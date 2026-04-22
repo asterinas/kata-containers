@@ -22,22 +22,37 @@ write_value() {
   fi
 }
 
-asterinas_upstream_repository="${ASTERINAS_UPSTREAM_REPOSITORY:-asterinas/asterinas}"
-asterinas_upstream_ref="${ASTERINAS_UPSTREAM_REF:-main}"
 kata_release_repository="${KATA_RELEASE_REPOSITORY:-${GITHUB_REPOSITORY:-}}"
 kata_static_tarball_url="${KATA_STATIC_TARBALL_URL:-}"
 kata_static_tarball_sha256="${KATA_STATIC_TARBALL_SHA256:-}"
 
 [ -n "${kata_release_repository}" ] || die "KATA_RELEASE_REPOSITORY or GITHUB_REPOSITORY must be set"
 
+manifest_url="$(
+  gh api "repos/${kata_release_repository}/releases/latest" --jq '
+    .assets[]
+    | select(.name | test("^kata-static-.*-asterinas-amd64\\.manifest\\.json$"))
+    | .browser_download_url
+  ' | head -n 1
+)"
+[ -n "${manifest_url}" ] || die "Failed to resolve release manifest from ${kata_release_repository}"
+
+manifest_json="$(curl -fsSL "${manifest_url}")"
+asterinas_builder_image="$(
+  printf '%s' "${manifest_json}" | jq -r '.asterinas_builder_image'
+)"
+[ -n "${asterinas_builder_image}" ] && [ "${asterinas_builder_image}" != "null" ] ||
+  die "Failed to resolve asterinas_builder_image from ${manifest_url}"
+
+docker_image_version="${asterinas_builder_image##*:}"
+[ -n "${docker_image_version}" ] || die "Failed to derive Docker image version from ${asterinas_builder_image}"
+
 asterinas_version="$(
-  gh api "repos/${asterinas_upstream_repository}/contents/VERSION?ref=${asterinas_upstream_ref}" --jq .content |
-    base64 -d | tr -d '\n'
+  printf '%s' "${manifest_json}" | jq -r '.asterinas_version // empty'
 )"
-docker_image_version="$(
-  gh api "repos/${asterinas_upstream_repository}/contents/DOCKER_IMAGE_VERSION?ref=${asterinas_upstream_ref}" --jq .content |
-    base64 -d | tr -d '\n'
-)"
+if [ -z "${asterinas_version}" ]; then
+  asterinas_version="${docker_image_version%%-*}"
+fi
 
 if [ -z "${kata_static_tarball_url}" ]; then
   kata_static_tarball_url="$(
