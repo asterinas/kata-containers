@@ -9,30 +9,26 @@ on:
 permissions:
   contents: read
 
-env:
-  ASTERINAS_REPOSITORY: jjf-dev/asterinas
-  ASTERINAS_REF: kata-support
-  ASTERINAS_UPSTREAM_REPOSITORY: jjf-dev/asterinas
-  ASTERINAS_UPSTREAM_REF: kata-support
-
 jobs:
-  resolve-upstream-asterinas-image:
-    name: Resolve Upstream Asterinas Image
+  resolve-asterinas-metadata:
+    name: Load Asterinas Metadata
     runs-on: ubuntu-latest
     outputs:
+      asterinas_repository: ${{ steps.resolve.outputs.asterinas_repository }}
+      asterinas_ref: ${{ steps.resolve.outputs.asterinas_ref }}
+      asterinas_commit: ${{ steps.resolve.outputs.asterinas_commit }}
       asterinas_version: ${{ steps.resolve.outputs.asterinas_version }}
       docker_image_version: ${{ steps.resolve.outputs.docker_image_version }}
+      asterinas_builder_image: ${{ steps.resolve.outputs.asterinas_builder_image }}
       kata_static_tarball_url: ${{ steps.resolve.outputs.kata_static_tarball_url }}
       kata_static_tarball_sha256: ${{ steps.resolve.outputs.kata_static_tarball_sha256 }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Resolve Upstream Asterinas Image Metadata
+      - name: Load Asterinas Metadata
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
-          ASTERINAS_UPSTREAM_REPOSITORY: ${{ env.ASTERINAS_UPSTREAM_REPOSITORY }}
-          ASTERINAS_UPSTREAM_REF: ${{ env.ASTERINAS_UPSTREAM_REF }}
           KATA_RELEASE_REPOSITORY: ${{ github.repository }}
           RESOLVED_ASSETS_ENV_FILE: /tmp/asterinas-release-assets.env
         shell: bash
@@ -41,18 +37,21 @@ jobs:
           bash tools/kata/resolve_release_assets.sh
           . "${RESOLVED_ASSETS_ENV_FILE}"
           {
-            echo '## Resolved upstream Asterinas image'
+            echo '## Loaded Asterinas metadata'
             echo
+            echo "- Repository: \`${asterinas_repository}\`"
+            echo "- Ref: \`${asterinas_ref}\`"
+            echo "- Commit: \`${asterinas_commit}\`"
             echo "- \`VERSION\`: \`${asterinas_version}\`"
             echo "- \`DOCKER_IMAGE_VERSION\`: \`${docker_image_version}\`"
-            echo "- Base image: \`asterinas/asterinas:${docker_image_version}\`"
+            echo "- Base image: \`${asterinas_builder_image}\`"
             echo "- Kata static tarball: \`${kata_static_tarball_url}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   test-documented-end-user-flow:
     name: Test Documented End-User Flow
     needs:
-      - resolve-upstream-asterinas-image
+      - resolve-asterinas-metadata
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -84,7 +83,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          docker pull "asterinas/kata:${{ needs.resolve-upstream-asterinas-image.outputs.docker_image_version }}"
+          docker pull "asterinas/kata:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}"
 
       - name: Replay Documented End-User Flow
         shell: bash
@@ -92,7 +91,7 @@ jobs:
           set -euxo pipefail
           python3 -u tools/kata/interactive_doc_test.py \
             --scenario end-user \
-            --kata-image "asterinas/kata:${{ needs.resolve-upstream-asterinas-image.outputs.docker_image_version }}" \
+            --kata-image "asterinas/kata:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}" \
             --log-dir "${KATA_DOC_LOG_DIR}"
 
       - name: Upload End-User Flow Logs
@@ -106,22 +105,22 @@ jobs:
   test-documented-kernel-developer-flow:
     name: Test Documented Kernel-Developer Flow
     needs:
-      - resolve-upstream-asterinas-image
+      - resolve-asterinas-metadata
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
       KATA_DOC_LOG_DIR: /tmp/asterinas-kata-doc-logs/kernel-developer
       KATA_STATIC_TARBALL_RELEASE_REPO: ${{ github.repository }}
-      KATA_STATIC_TARBALL_URL: ${{ needs.resolve-upstream-asterinas-image.outputs.kata_static_tarball_url }}
-      KATA_STATIC_TARBALL_SHA256: ${{ needs.resolve-upstream-asterinas-image.outputs.kata_static_tarball_sha256 }}
+      KATA_STATIC_TARBALL_URL: ${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_url }}
+      KATA_STATIC_TARBALL_SHA256: ${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_sha256 }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Check Out Asterinas Source
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.ASTERINAS_REPOSITORY }}
-          ref: ${{ env.ASTERINAS_REF }}
+          repository: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_repository }}
+          ref: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_commit }}
           path: asterinas-src
 
       - name: Prepare Local Asterinas Tree
@@ -156,7 +155,7 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          docker pull "asterinas/asterinas:${{ needs.resolve-upstream-asterinas-image.outputs.docker_image_version }}"
+          docker pull "${{ needs.resolve-asterinas-metadata.outputs.asterinas_builder_image }}"
 
       - name: Replay Documented Kernel-Developer Flow
         shell: bash
@@ -164,7 +163,7 @@ jobs:
           set -euxo pipefail
           python3 -u tools/kata/interactive_doc_test.py \
             --scenario kernel-developer \
-            --asterinas-image "asterinas/asterinas:${{ needs.resolve-upstream-asterinas-image.outputs.docker_image_version }}" \
+            --asterinas-image "${{ needs.resolve-asterinas-metadata.outputs.asterinas_builder_image }}" \
             --asterinas-dir "${HOME}/asterinas" \
             --log-dir "${KATA_DOC_LOG_DIR}"
 

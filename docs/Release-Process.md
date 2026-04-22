@@ -80,11 +80,15 @@ builds can reuse the same repo-owned helper set that is exercised by the
 `test-asterinas-kata` workflow.
 
 The [publish-asterinas-kata-image](https://github.com/kata-containers/kata-containers/actions/workflows/publish-asterinas-kata-image.yml)
-workflow builds the matching Docker Hub image. It resolves the current upstream
-`asterinas/asterinas` `DOCKER_IMAGE_VERSION`, layers the repo-owned
+workflow builds the matching Docker Hub image. It reads the pinned Asterinas
+source/image metadata from `tools/kata/config/asterinas-metadata.env`, layers the repo-owned
 `tools/kata/` helpers into `/root/asterinas/tools/kata`, runs
 `kata_env.sh install`, and then pushes `asterinas/kata` when Docker
 Hub credentials are available.
+
+Update `tools/kata/config/asterinas-metadata.env` with
+`bash tools/kata/asterinas_metadata.sh update` before rolling the repository
+forward to a newer Asterinas source/image pairing.
 
 If the workflow fails because of some external environmental causes, e.g.
 network timeout, simply re-run the failed jobs until they eventually succeed.

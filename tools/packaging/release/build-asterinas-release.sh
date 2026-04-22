@@ -19,6 +19,8 @@ FORCE_RUNTIME_BUILD="${FORCE_RUNTIME_BUILD:-false}"
 ASTERINAS_REPOSITORY="${ASTERINAS_REPOSITORY:-}"
 ASTERINAS_REF="${ASTERINAS_REF:-}"
 ASTERINAS_COMMIT="${ASTERINAS_COMMIT:-}"
+ASTERINAS_VERSION="${ASTERINAS_VERSION:-}"
+ASTERINAS_DOCKER_IMAGE_VERSION="${ASTERINAS_DOCKER_IMAGE_VERSION:-}"
 ASTERINAS_BUILDER_IMAGE="${ASTERINAS_BUILDER_IMAGE:-}"
 ASTERINAS_KERNEL="${ASTERINAS_KERNEL:-}"
 ASTERINAS_TDX_KERNEL="${ASTERINAS_TDX_KERNEL:-}"
@@ -358,6 +360,9 @@ write_manifest() {
   "base_tarball_file": "$(basename "${BASE_TARBALL}")",
   "asterinas_repository": "${ASTERINAS_REPOSITORY}",
   "asterinas_ref": "${ASTERINAS_REF}",
+  "asterinas_commit": "${ASTERINAS_COMMIT}",
+  "asterinas_version": "${ASTERINAS_VERSION}",
+  "asterinas_docker_image_version": "${ASTERINAS_DOCKER_IMAGE_VERSION}",
   "asterinas_builder_image": "${ASTERINAS_BUILDER_IMAGE}",
   "asterinas_kernel_artifact": "$(basename "${ASTERINAS_KERNEL}")",
 ${tdx_kernel_manifest}  "guest_kernel_path": "${ASTERINAS_KERNEL_PATH}",
@@ -385,6 +390,12 @@ write_release_notes() {
 		printf -- '- Asterinas repo/ref: `%s@%s`\n' "${ASTERINAS_REPOSITORY}" "${ASTERINAS_REF}"
 		if [ -n "${ASTERINAS_COMMIT}" ]; then
 			printf -- '- Asterinas commit: `%s`\n' "${ASTERINAS_COMMIT}"
+		fi
+		if [ -n "${ASTERINAS_VERSION}" ]; then
+			printf -- '- Asterinas version: `%s`\n' "${ASTERINAS_VERSION}"
+		fi
+		if [ -n "${ASTERINAS_DOCKER_IMAGE_VERSION}" ]; then
+			printf -- '- Asterinas Docker image version: `%s`\n' "${ASTERINAS_DOCKER_IMAGE_VERSION}"
 		fi
 		printf -- '- Asterinas builder image: `%s`\n' "${ASTERINAS_BUILDER_IMAGE}"
 		printf -- '- Guest kernel: `%s`\n' "${ASTERINAS_KERNEL_PATH}"

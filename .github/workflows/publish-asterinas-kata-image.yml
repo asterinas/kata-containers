@@ -30,17 +30,17 @@ on:
 permissions:
   contents: read
 
-env:
-  ASTERINAS_UPSTREAM_REPOSITORY: jjf-dev/asterinas
-  ASTERINAS_UPSTREAM_REF: kata-support
-
 jobs:
-  resolve-upstream-asterinas-image:
-    name: Resolve Upstream Asterinas Image
+  resolve-asterinas-metadata:
+    name: Load Asterinas Metadata
     runs-on: ubuntu-latest
     outputs:
+      asterinas_repository: ${{ steps.resolve.outputs.asterinas_repository }}
+      asterinas_ref: ${{ steps.resolve.outputs.asterinas_ref }}
+      asterinas_commit: ${{ steps.resolve.outputs.asterinas_commit }}
       asterinas_version: ${{ steps.resolve.outputs.asterinas_version }}
       docker_image_version: ${{ steps.resolve.outputs.docker_image_version }}
+      asterinas_builder_image: ${{ steps.resolve.outputs.asterinas_builder_image }}
       kata_static_tarball_release_repo: ${{ steps.resolve.outputs.kata_static_tarball_release_repo }}
       kata_static_tarball_url: ${{ steps.resolve.outputs.kata_static_tarball_url }}
       kata_static_tarball_sha256: ${{ steps.resolve.outputs.kata_static_tarball_sha256 }}
@@ -52,8 +52,6 @@ jobs:
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
-          ASTERINAS_UPSTREAM_REPOSITORY: ${{ env.ASTERINAS_UPSTREAM_REPOSITORY }}
-          ASTERINAS_UPSTREAM_REF: ${{ env.ASTERINAS_UPSTREAM_REF }}
           DEFAULT_IMAGE_REPOSITORY: asterinas/kata
           WORKFLOW_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
           WORKFLOW_RELEASE_REPO: ${{ inputs.kata_static_tarball_release_repo }}
@@ -90,11 +88,14 @@ jobs:
           echo "should_push=${should_push}" >> "${GITHUB_OUTPUT}"
 
           {
-            echo '## Resolved Kata image inputs for the Asterinas guest kernel'
+            echo '## Loaded Asterinas metadata and Kata image inputs'
             echo
-            echo "- Upstream \`VERSION\`: \`${asterinas_version}\`"
-            echo "- Upstream \`DOCKER_IMAGE_VERSION\`: \`${docker_image_version}\`"
-            echo "- Base image: \`asterinas/asterinas:${docker_image_version}\`"
+            echo "- Repository: \`${asterinas_repository}\`"
+            echo "- Ref: \`${asterinas_ref}\`"
+            echo "- Commit: \`${asterinas_commit}\`"
+            echo "- \`VERSION\`: \`${asterinas_version}\`"
+            echo "- \`DOCKER_IMAGE_VERSION\`: \`${docker_image_version}\`"
+            echo "- Base image: \`${asterinas_builder_image}\`"
             echo "- Target image: \`${image_repository}:${docker_image_version}\`"
             echo "- Kata tarball release repo: \`${kata_static_tarball_release_repo}\`"
             if [ -n "${kata_static_tarball_url}" ]; then
@@ -109,10 +110,10 @@ jobs:
   build-asterinas-kata-image:
     name: Build and Optionally Push Kata Image with Asterinas as the Guest Kernel
     needs:
-      - resolve-upstream-asterinas-image
+      - resolve-asterinas-metadata
     runs-on: ubuntu-latest
     env:
-      ASTERINAS_BASE_IMAGE: asterinas/asterinas:${{ needs.resolve-upstream-asterinas-image.outputs.docker_image_version }}
+      ASTERINAS_BASE_IMAGE: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_builder_image }}
       IMAGE_REPOSITORY: ${{ inputs.image_repository || 'asterinas/kata' }}
     steps:
       - uses: actions/checkout@v4
@@ -121,7 +122,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Log In to Docker Hub
-        if: ${{ needs.resolve-upstream-asterinas-image.outputs.should_push == 'true' }}
+        if: ${{ needs.resolve-asterinas-metadata.outputs.should_push == 'true' }}
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -134,31 +135,31 @@ jobs:
           context: .
           file: tools/packaging/asterinas-kata/Dockerfile
           platforms: linux/amd64
-          load: ${{ needs.resolve-upstream-asterinas-image.outputs.should_push != 'true' }}
-          push: ${{ needs.resolve-upstream-asterinas-image.outputs.should_push == 'true' }}
+          load: ${{ needs.resolve-asterinas-metadata.outputs.should_push != 'true' }}
+          push: ${{ needs.resolve-asterinas-metadata.outputs.should_push == 'true' }}
           provenance: false
           tags: |
-            ${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-upstream-asterinas-image.outputs.docker_image_version }}
+            ${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.description=Asterinas base image with Kata helpers and Kata environment preinstalled
-            org.opencontainers.image.version=${{ needs.resolve-upstream-asterinas-image.outputs.docker_image_version }}
+            org.opencontainers.image.version=${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
             org.opencontainers.image.base.name=${{ env.ASTERINAS_BASE_IMAGE }}
-            io.asterinas.version=${{ needs.resolve-upstream-asterinas-image.outputs.asterinas_version }}
+            io.asterinas.version=${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}
           build-args: |
             ASTERINAS_BASE_IMAGE=${{ env.ASTERINAS_BASE_IMAGE }}
-            KATA_STATIC_TARBALL_RELEASE_REPO=${{ needs.resolve-upstream-asterinas-image.outputs.kata_static_tarball_release_repo }}
-            KATA_STATIC_TARBALL_URL=${{ needs.resolve-upstream-asterinas-image.outputs.kata_static_tarball_url }}
-            KATA_STATIC_TARBALL_SHA256=${{ needs.resolve-upstream-asterinas-image.outputs.kata_static_tarball_sha256 }}
-            ASTERINAS_RELEASE_VERSION=${{ needs.resolve-upstream-asterinas-image.outputs.asterinas_version }}
-            ASTERINAS_DOCKER_IMAGE_VERSION=${{ needs.resolve-upstream-asterinas-image.outputs.docker_image_version }}
+            KATA_STATIC_TARBALL_RELEASE_REPO=${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_release_repo }}
+            KATA_STATIC_TARBALL_URL=${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_url }}
+            KATA_STATIC_TARBALL_SHA256=${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_sha256 }}
+            ASTERINAS_RELEASE_VERSION=${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}
+            ASTERINAS_DOCKER_IMAGE_VERSION=${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
 
       - name: Verify Local Image Metadata
-        if: ${{ needs.resolve-upstream-asterinas-image.outputs.should_push != 'true' }}
+        if: ${{ needs.resolve-asterinas-metadata.outputs.should_push != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
-          docker image inspect "${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-upstream-asterinas-image.outputs.docker_image_version }}" >/dev/null
+          docker image inspect "${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}" >/dev/null
 
       - name: Write Workflow Summary
         shell: bash
@@ -166,8 +167,8 @@ jobs:
           {
             echo '## Kata image result for the Asterinas guest kernel'
             echo
-            echo "- Image: \`${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-upstream-asterinas-image.outputs.docker_image_version }}\`"
+            echo "- Image: \`${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}\`"
             echo "- Base image: \`${{ env.ASTERINAS_BASE_IMAGE }}\`"
-            echo "- Upstream Asterinas version: \`${{ needs.resolve-upstream-asterinas-image.outputs.asterinas_version }}\`"
-            echo "- Push enabled: \`${{ needs.resolve-upstream-asterinas-image.outputs.should_push }}\`"
+            echo "- Asterinas version: \`${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}\`"
+            echo "- Push enabled: \`${{ needs.resolve-asterinas-metadata.outputs.should_push }}\`"
           } >> "${GITHUB_STEP_SUMMARY}"

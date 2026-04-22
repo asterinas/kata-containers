@@ -16,10 +16,9 @@ import pexpect
 
 OUTER_PROMPT = "PEXPECT_OUTER> "
 GUEST_PROMPT = "PEXPECT_GUEST> "
-DEFAULT_KATA_IMAGE = "asterinas/kata:0.17.2-20260407"
-DEFAULT_ASTERINAS_IMAGE = "asterinas/asterinas:0.17.2-20260407"
 DEFAULT_WORKLOAD_IMAGE = "docker.io/alpine:latest"
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+ASTERINAS_METADATA_FILE = REPO_ROOT / "tools/kata/config/asterinas-metadata.env"
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
@@ -39,6 +38,36 @@ class TeeWriter:
     def flush(self) -> None:
         for stream in self.streams:
             stream.flush()
+
+
+def load_asterinas_metadata() -> dict[str, str]:
+    metadata: dict[str, str] = {}
+
+    if not ASTERINAS_METADATA_FILE.exists():
+        return metadata
+
+    for raw_line in ASTERINAS_METADATA_FILE.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        key, value = line.split("=", 1)
+        metadata[key.strip()] = value.strip()
+
+    return metadata
+
+
+ASTERINAS_METADATA = load_asterinas_metadata()
+DEFAULT_KATA_IMAGE = (
+    f"asterinas/kata:{ASTERINAS_METADATA['ASTERINAS_DOCKER_IMAGE_VERSION']}"
+    if "ASTERINAS_DOCKER_IMAGE_VERSION" in ASTERINAS_METADATA
+    else "asterinas/kata:0.17.2-20260407"
+)
+DEFAULT_ASTERINAS_IMAGE = (
+    f"asterinas/asterinas:{ASTERINAS_METADATA['ASTERINAS_DOCKER_IMAGE_VERSION']}"
+    if "ASTERINAS_DOCKER_IMAGE_VERSION" in ASTERINAS_METADATA
+    else "asterinas/asterinas:0.17.2-20260407"
+)
 
 
 def strip_terminal_control_sequences(text: str) -> str:

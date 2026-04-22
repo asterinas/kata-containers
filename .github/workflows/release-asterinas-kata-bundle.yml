@@ -19,21 +19,6 @@ on:
         required: true
         default: true
         type: boolean
-      asterinas_repository:
-        description: GitHub repository that contains the Asterinas source
-        required: true
-        default: jjf-dev/asterinas
-        type: string
-      asterinas_ref:
-        description: Git ref, branch, or tag to build from the Asterinas repository
-        required: true
-        default: kata-support
-        type: string
-      asterinas_builder_image:
-        description: Container image used to build the Asterinas kernel
-        required: true
-        default: asterinas/asterinas:0.17.1-20260319
-        type: string
       force_runtime_build:
         description: Rebuild kata-runtime even if src/runtime matches the upstream release tag
         required: true
@@ -49,26 +34,59 @@ permissions:
   contents: write
 
 env:
-  ASTERINAS_REPOSITORY: ${{ inputs.asterinas_repository || 'jjf-dev/asterinas' }}
-  ASTERINAS_REF: ${{ inputs.asterinas_ref || 'kata-support' }}
-  ASTERINAS_BUILDER_IMAGE: ${{ inputs.asterinas_builder_image || 'asterinas/asterinas:0.17.1-20260319' }}
   FORCE_RUNTIME_BUILD: ${{ inputs.force_runtime_build || false }}
   KATA_STATIC_RELEASE_REPOSITORY: ${{ inputs.kata_static_release_repository || 'kata-containers/kata-containers' }}
 
 jobs:
+  load-asterinas-metadata:
+    name: Load Asterinas Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      asterinas_repository: ${{ steps.load.outputs.asterinas_repository }}
+      asterinas_ref: ${{ steps.load.outputs.asterinas_ref }}
+      asterinas_commit: ${{ steps.load.outputs.asterinas_commit }}
+      asterinas_version: ${{ steps.load.outputs.asterinas_version }}
+      docker_image_version: ${{ steps.load.outputs.docker_image_version }}
+      asterinas_builder_image: ${{ steps.load.outputs.asterinas_builder_image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load Asterinas Metadata
+        id: load
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/kata/asterinas_metadata.sh load
+
+      - name: Write Workflow Summary
+        shell: bash
+        run: |
+          {
+            echo '## Loaded Asterinas metadata'
+            echo
+            echo "- Repository: \`${{ steps.load.outputs.asterinas_repository }}\`"
+            echo "- Ref: \`${{ steps.load.outputs.asterinas_ref }}\`"
+            echo "- Commit: \`${{ steps.load.outputs.asterinas_commit }}\`"
+            echo "- \`VERSION\`: \`${{ steps.load.outputs.asterinas_version }}\`"
+            echo "- \`DOCKER_IMAGE_VERSION\`: \`${{ steps.load.outputs.docker_image_version }}\`"
+            echo "- Builder image: \`${{ steps.load.outputs.asterinas_builder_image }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   build-asterinas-kernel:
     name: Build Asterinas Kernel Artifact
     runs-on: ubuntu-22.04
+    needs:
+      - load-asterinas-metadata
     outputs:
       asterinas_commit: ${{ steps.asterinas_commit.outputs.value }}
     container:
-      image: ${{ inputs.asterinas_builder_image || 'asterinas/asterinas:0.17.1-20260319' }}
+      image: ${{ needs.load-asterinas-metadata.outputs.asterinas_builder_image }}
     steps:
       - name: Check Out Asterinas
         uses: actions/checkout@v4
         with:
-          repository: ${{ env.ASTERINAS_REPOSITORY }}
-          ref: ${{ env.ASTERINAS_REF }}
+          repository: ${{ needs.load-asterinas-metadata.outputs.asterinas_repository }}
+          ref: ${{ needs.load-asterinas-metadata.outputs.asterinas_commit }}
           path: asterinas
 
       - name: Record Asterinas Commit
@@ -113,6 +131,7 @@ jobs:
     name: Build and Publish Kata Bundle with Asterinas as the Guest Kernel
     runs-on: ubuntu-22.04
     needs:
+      - load-asterinas-metadata
       - build-asterinas-kernel
     permissions:
       contents: write
@@ -160,10 +179,12 @@ jobs:
           ARCHITECTURE: amd64
           ASTERINAS_KERNEL: ${{ github.workspace }}/build/asterinas-kernel/aster-kernel-osdk-bin.qemu_elf
           ASTERINAS_TDX_KERNEL: ${{ github.workspace }}/build/asterinas-kernel/aster-kernel-osdk-bin.qemu_elf-tdx
-          ASTERINAS_REPOSITORY: ${{ env.ASTERINAS_REPOSITORY }}
-          ASTERINAS_REF: ${{ env.ASTERINAS_REF }}
+          ASTERINAS_REPOSITORY: ${{ needs.load-asterinas-metadata.outputs.asterinas_repository }}
+          ASTERINAS_REF: ${{ needs.load-asterinas-metadata.outputs.asterinas_ref }}
           ASTERINAS_COMMIT: ${{ needs.build-asterinas-kernel.outputs.asterinas_commit }}
-          ASTERINAS_BUILDER_IMAGE: ${{ env.ASTERINAS_BUILDER_IMAGE }}
+          ASTERINAS_VERSION: ${{ needs.load-asterinas-metadata.outputs.asterinas_version }}
+          ASTERINAS_DOCKER_IMAGE_VERSION: ${{ needs.load-asterinas-metadata.outputs.docker_image_version }}
+          ASTERINAS_BUILDER_IMAGE: ${{ needs.load-asterinas-metadata.outputs.asterinas_builder_image }}
           FORCE_RUNTIME_BUILD: ${{ env.FORCE_RUNTIME_BUILD }}
           KATA_STATIC_RELEASE_REPOSITORY: ${{ env.KATA_STATIC_RELEASE_REPOSITORY }}
         run: |

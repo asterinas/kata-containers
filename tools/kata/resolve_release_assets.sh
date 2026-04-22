@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 die() {
   echo "$*" >&2
   exit 1
@@ -25,34 +27,13 @@ write_value() {
 kata_release_repository="${KATA_RELEASE_REPOSITORY:-${GITHUB_REPOSITORY:-}}"
 kata_static_tarball_url="${KATA_STATIC_TARBALL_URL:-}"
 kata_static_tarball_sha256="${KATA_STATIC_TARBALL_SHA256:-}"
+metadata_env_file="${RESOLVED_ASSETS_ENV_FILE:-$(mktemp)}"
 
 [ -n "${kata_release_repository}" ] || die "KATA_RELEASE_REPOSITORY or GITHUB_REPOSITORY must be set"
 
-manifest_url="$(
-  gh api "repos/${kata_release_repository}/releases/latest" --jq '
-    .assets[]
-    | select(.name | test("^kata-static-.*-asterinas-amd64\\.manifest\\.json$"))
-    | .browser_download_url
-  ' | head -n 1
-)"
-[ -n "${manifest_url}" ] || die "Failed to resolve release manifest from ${kata_release_repository}"
-
-manifest_json="$(curl -fsSL "${manifest_url}")"
-asterinas_builder_image="$(
-  printf '%s' "${manifest_json}" | jq -r '.asterinas_builder_image'
-)"
-[ -n "${asterinas_builder_image}" ] && [ "${asterinas_builder_image}" != "null" ] ||
-  die "Failed to resolve asterinas_builder_image from ${manifest_url}"
-
-docker_image_version="${asterinas_builder_image##*:}"
-[ -n "${docker_image_version}" ] || die "Failed to derive Docker image version from ${asterinas_builder_image}"
-
-asterinas_version="$(
-  printf '%s' "${manifest_json}" | jq -r '.asterinas_version // empty'
-)"
-if [ -z "${asterinas_version}" ]; then
-  asterinas_version="${docker_image_version%%-*}"
-fi
+RESOLVED_ASTERINAS_METADATA_ENV_FILE="${metadata_env_file}" bash "${script_dir}/asterinas_metadata.sh" load
+# shellcheck disable=SC1090
+. "${metadata_env_file}"
 
 if [ -z "${kata_static_tarball_url}" ]; then
   kata_static_tarball_url="$(
@@ -88,8 +69,5 @@ if [ -z "${kata_static_tarball_sha256}" ]; then
 fi
 
 [ -n "${kata_static_tarball_sha256}" ] || die "Failed to resolve Kata static tarball SHA256"
-
-write_value "asterinas_version" "${asterinas_version}"
-write_value "docker_image_version" "${docker_image_version}"
 write_value "kata_static_tarball_url" "${kata_static_tarball_url}"
 write_value "kata_static_tarball_sha256" "${kata_static_tarball_sha256}"

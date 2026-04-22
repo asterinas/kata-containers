@@ -9,11 +9,17 @@ Kata helpers live here.
   and `asterinas/asterinas` images
 - `check_overlayfs.sh`: probes whether the current host-side backing filesystem
   can support overlayfs `upperdir` and `workdir` for local Kata runs
+- `asterinas_metadata.sh`: loads the repo-owned Asterinas metadata file or
+  refreshes it from the configured upstream repository and ref
 - `config/`: repo-owned Kata, CNI, `containerd`, and smoke-test config files used by the scripts
 
 ## Configuration
 
 - Default smoke-test settings live in `tools/kata/config/smoke-test.env`.
+- Pinned Asterinas source/image metadata lives in
+  `tools/kata/config/asterinas-metadata.env`.
+- Refresh that metadata with `bash tools/kata/asterinas_metadata.sh update`.
+- Load that metadata with `bash tools/kata/asterinas_metadata.sh load`.
 - By default, `bash tools/kata/kata_env.sh install` resolves the latest
   Kata static tarball with Asterinas as the guest kernel from `kata-containers/kata-containers`.
 - Repository workflows override `KATA_STATIC_TARBALL_RELEASE_REPO` to the
