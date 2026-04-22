@@ -30,6 +30,10 @@ on:
 permissions:
   contents: read
 
+env:
+  ASTERINAS_UPSTREAM_REPOSITORY: jjf-dev/asterinas
+  ASTERINAS_UPSTREAM_REF: kata-support
+
 jobs:
   resolve-upstream-asterinas-image:
     name: Resolve Upstream Asterinas Image
@@ -48,8 +52,8 @@ jobs:
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
-          ASTERINAS_UPSTREAM_REPOSITORY: asterinas/asterinas
-          ASTERINAS_UPSTREAM_REF: main
+          ASTERINAS_UPSTREAM_REPOSITORY: ${{ env.ASTERINAS_UPSTREAM_REPOSITORY }}
+          ASTERINAS_UPSTREAM_REF: ${{ env.ASTERINAS_UPSTREAM_REF }}
           DEFAULT_IMAGE_REPOSITORY: asterinas/kata
           WORKFLOW_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
           WORKFLOW_RELEASE_REPO: ${{ inputs.kata_static_tarball_release_repo }}

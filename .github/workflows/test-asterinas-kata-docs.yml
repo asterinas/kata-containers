@@ -12,6 +12,8 @@ permissions:
 env:
   ASTERINAS_REPOSITORY: jjf-dev/asterinas
   ASTERINAS_REF: kata-support
+  ASTERINAS_UPSTREAM_REPOSITORY: jjf-dev/asterinas
+  ASTERINAS_UPSTREAM_REF: kata-support
 
 jobs:
   resolve-upstream-asterinas-image:
@@ -29,8 +31,8 @@ jobs:
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
-          ASTERINAS_UPSTREAM_REPOSITORY: asterinas/asterinas
-          ASTERINAS_UPSTREAM_REF: main
+          ASTERINAS_UPSTREAM_REPOSITORY: ${{ env.ASTERINAS_UPSTREAM_REPOSITORY }}
+          ASTERINAS_UPSTREAM_REF: ${{ env.ASTERINAS_UPSTREAM_REF }}
           KATA_RELEASE_REPOSITORY: ${{ github.repository }}
           RESOLVED_ASSETS_ENV_FILE: /tmp/asterinas-release-assets.env
         shell: bash
