@@ -1,15 +1,15 @@
-# Asterinas Kata CI Progress
+# CI Progress for Kata with Asterinas as the Guest Kernel
 
 ## 2026-04-20 Workflow naming cleanup
 
-- Renamed the test workflow file from `.github/workflows/test_kata_guest_os.yml` to `.github/workflows/test-asterinas-kata.yml` and updated its top-level workflow name to `Test | Asterinas Kata`.
+- Renamed the test workflow file from `.github/workflows/test_kata_guest_os.yml` to `.github/workflows/test-asterinas-kata.yml` and updated its top-level workflow name to `Test | Kata with Asterinas as the Guest Kernel`.
 - Renamed the release workflow file from `.github/workflows/release-asterinas.yaml` to `.github/workflows/release-asterinas-kata-bundle.yml` so the file name matches the Asterinas-specific release payload it builds.
 - Renamed the publish workflow file from `.github/workflows/publish-asterinas-kata-image.yaml` to `.github/workflows/publish-asterinas-kata-image.yml` to align the extension with the other workflow files.
 - Normalized the user-facing job names so the GitHub Actions UI now shows:
   - `Resolve upstream Asterinas image`
-  - `Build and optionally push Asterinas Kata image`
+  - `Build and optionally push Kata image with Asterinas as the guest kernel`
   - `Build Asterinas kernel artifact`
-  - `Build and publish Asterinas Kata bundle`
+  - `Build and publish Kata with Asterinas as the Guest Kernel bundle`
 - Normalized the step names across all three workflows to the same Title Case style so the GitHub Actions UI reads consistently at both job and step level.
 - Updated repository documentation links and workflow-path references to match the renamed files.
 - Static validation after the naming cleanup:
@@ -24,7 +24,7 @@
 
 ## 2026-04-20 Published image job workspace fix
 
-- The first post-rewrite PR run failed in `Test published Asterinas Kata image` during `Check OverlayFS Staging Prerequisites`.
+- The first post-rewrite PR run failed in `Test published Kata image with Asterinas as the guest kernel` during `Check OverlayFS Staging Prerequisites`.
 - Root cause: after converting the published-image test to a job-level `container:`, the workflow still expected the helper scripts to be available under `/root/asterinas/tools/kata`, but `actions/checkout` places the repo under the GitHub Actions workspace instead.
 - Fix: removed the extra `container.volumes` mount and the `/root/asterinas` working-directory override so the published-image job now runs the repo-owned helper scripts from the checked-out workspace, just like the source-image job.
 
@@ -63,7 +63,7 @@
 
 - The first dual-kernel push run reached the real workload stage and showed that both Linux guest variants passed, while both Asterinas guest variants timed out connecting to the guest agent over vsock.
 - Root cause: the test matrix exported `KATA_ASTERINAS_KERNEL_PATH=/root/asterinas/target/osdk/aster-kernel-osdk-bin.qemu_elf`, which made `kata_env.sh install` bypass the repo release tarball and instead overlay the upstream image kernel onto a generic Kata install.
-- Fix: removed the `KATA_ASTERINAS_KERNEL_PATH` override from the workflow so both `linux` and `asterinas` variants install the same repo-owned Asterinas Kata release tarball, and `KATA_GUEST_KERNEL` only selects which packaged guest configuration to use.
+- Fix: removed the `KATA_ASTERINAS_KERNEL_PATH` override from the workflow so both `linux` and `asterinas` variants install the same repo-owned Kata release with Asterinas as the guest kernel tarball, and `KATA_GUEST_KERNEL` only selects which packaged guest configuration to use.
 
 ## 2026-04-20 Asterinas guest startup timeout
 
@@ -102,7 +102,7 @@
 ## 2026-04-20 Host-run vsock comparison workflow
 
 - Added `.github/workflows/compare-asterinas-kata-vsock.yml` as a temporary comparison workflow so the host-run `docker run` path could be compared with and without `sudo modprobe vhost_vsock`.
-- That temporary workflow was only used for diagnosis and has since been removed after the main `Test | Asterinas Kata` workflow was fixed.
+- That temporary workflow was only used for diagnosis and has since been removed after the main `Test | Kata with Asterinas as the Guest Kernel` workflow was fixed.
 
 ## 2026-04-17 Initial findings
 
@@ -155,12 +155,12 @@
 ## 2026-04-17 PR and CI observation
 
 - Created branch `kata-ci-release-image` and opened PR `https://github.com/jjf-dev/kata-containers/pull/21` against base branch `asterinas`.
-- Initial local commit: `16fb051c0` (`Add Asterinas Kata CI and image workflows`).
+- Initial local commit: `16fb051c0` (`Add Kata with Asterinas as the Guest Kernel CI and image workflows`).
 - Next step: observe the GitHub Actions runs for this PR and record any failures or conclusions here.
 
 ## 2026-04-17 Published image test update
 
-- Added a second job to `.github/workflows/test-asterinas-kata.yml` named `Test published Asterinas Kata image`.
+- Added a second job to `.github/workflows/test-asterinas-kata.yml` named `Test published Kata image with Asterinas as the guest kernel`.
 - The new job pulls `asterinas/kata:<DOCKER_IMAGE_VERSION>` from Docker Hub, where `<DOCKER_IMAGE_VERSION>` is resolved from upstream `asterinas/asterinas`.
 - Because the published `asterinas/kata` image already contains `/root/asterinas/tools/kata` and should already have the Kata environment installed, the test does not use a job-level `container:` and does not rerun `kata_env.sh install`.
 - Instead, it runs the pulled image with `docker run --privileged --cgroupns host` and the same `tmpfs` staging mounts, then executes overlayfs preflight plus two `run_kata.sh pass` runs from inside `/root/asterinas`.
@@ -194,7 +194,7 @@
 ## 2026-04-21 Current CI conclusion
 
 - All three Asterinas workflows now trigger on `push` to the `asterinas` branch, and the latest debugging iterations were validated against branch-push runs rather than pull-request runs.
-- The Docker Hub credential issue is resolved. After adding `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`, the `Publish | Asterinas Kata Image` workflow can log in and push successfully.
+- The Docker Hub credential issue is resolved. After adding `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`, the `Publish | Kata Image with Asterinas as the Guest Kernel` workflow can log in and push successfully.
 - A separate workflow-level bug also got fixed: GitHub Actions started suppressing outputs such as `base_image` and `image_repository` because their values contained the secret-like string `asterinas`. I removed those image references from job outputs and recomputed them directly in downstream jobs.
 - The main Kata test workflow now reliably shows the same split result:
   - Linux guest variants pass (`source, linux` and `published, linux`)
@@ -226,7 +226,7 @@
 ## 2026-04-21 Final fix and cleanup
 
 - The effective fix for the CI was to set `disable_nesting_checks = true` in `tools/kata/config/kata-10-container.toml`, which prevents Kata from switching the QEMU virtio-vsock device into the nested-environment legacy path on GitHub-hosted runners.
-- After that config change, the main `Test | Asterinas Kata` workflow passed on the `asterinas` branch push path.
+- After that config change, the main `Test | Kata with Asterinas as the Guest Kernel` workflow passed on the `asterinas` branch push path.
 - Since the main workflow is now able to validate the scenario directly, the temporary comparison workflow `.github/workflows/compare-asterinas-kata-vsock.yml` is no longer needed and has been removed.
 
 ## 2026-04-21 Resource and timeout experiments
