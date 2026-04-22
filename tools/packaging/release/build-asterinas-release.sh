@@ -18,6 +18,7 @@ FORCE_RUNTIME_BUILD="${FORCE_RUNTIME_BUILD:-false}"
 
 ASTERINAS_REPOSITORY="${ASTERINAS_REPOSITORY:-}"
 ASTERINAS_REF="${ASTERINAS_REF:-}"
+ASTERINAS_COMMIT="${ASTERINAS_COMMIT:-}"
 ASTERINAS_BUILDER_IMAGE="${ASTERINAS_BUILDER_IMAGE:-}"
 ASTERINAS_KERNEL="${ASTERINAS_KERNEL:-}"
 ASTERINAS_TDX_KERNEL="${ASTERINAS_TDX_KERNEL:-}"
@@ -376,12 +377,15 @@ write_release_notes() {
 	asset_sha="$(sha256sum "${RELEASE_ASSET}" | awk '{print $1}')"
 
 	{
-		printf '# Asterinas Kata release\n\n'
+		printf '# Kata release with Asterinas as the guest kernel\n\n'
 		printf -- '- Kata version: `%s`\n' "${VERSION}"
 		printf -- '- Architecture: `%s`\n' "${ARCHITECTURE}"
 		printf -- '- Base tarball: `%s`\n' "${BASE_TARBALL_URL}"
-		printf -- '- Kata commit: `%s`\n' "${KATA_COMMIT}"
+		printf -- '- kata-containers commit: `%s`\n' "${KATA_COMMIT}"
 		printf -- '- Asterinas repo/ref: `%s@%s`\n' "${ASTERINAS_REPOSITORY}" "${ASTERINAS_REF}"
+		if [ -n "${ASTERINAS_COMMIT}" ]; then
+			printf -- '- Asterinas commit: `%s`\n' "${ASTERINAS_COMMIT}"
+		fi
 		printf -- '- Asterinas builder image: `%s`\n' "${ASTERINAS_BUILDER_IMAGE}"
 		printf -- '- Guest kernel: `%s`\n' "${ASTERINAS_KERNEL_PATH}"
 		if [ -n "${ASTERINAS_TDX_KERNEL}" ]; then
