@@ -9,8 +9,9 @@ Kata helpers live here.
   and `asterinas/asterinas` images
 - `check_overlayfs.sh`: probes whether the current host-side backing filesystem
   can support overlayfs `upperdir` and `workdir` for local Kata runs
-- `asterinas_metadata.sh`: loads the repo-owned Asterinas metadata file or
-  refreshes it from the configured upstream repository and ref
+- `asterinas_metadata.sh`: loads pinned Asterinas metadata for non-upstream
+  repositories, resolves live metadata from `asterinas/asterinas`, or refreshes
+  the repo-owned metadata file
 - `config/`: repo-owned Kata, CNI, `containerd`, and smoke-test config files used by the scripts
 
 ## Configuration
@@ -39,6 +40,25 @@ Kata helpers live here.
   to `docker.io/alpine:latest`. For local validation in environments where
   Docker Hub is unreachable, you can temporarily switch it to
   `docker.1ms.run/alpine:latest`.
+
+## Asterinas metadata selection
+
+- Workflows should resolve metadata with
+  `bash tools/kata/asterinas_metadata.sh resolve` instead of loading the pinned
+  file directly.
+- `tools/kata/config/asterinas-metadata.env` acts as both the selector and the
+  pinned fallback. Keep it pointed at `jjf-dev/asterinas` until
+  `asterinas/asterinas:main` is ready for Kata CI.
+- When `ASTERINAS_REPOSITORY` is exactly `asterinas/asterinas`, `resolve` reads
+  live metadata from GitHub at `ASTERINAS_REF`, including the commit SHA,
+  commit date, `VERSION`, and `DOCKER_IMAGE_VERSION`.
+- When `ASTERINAS_REPOSITORY` points to any other Asterinas repository, `resolve`
+  uses the pinned commit/version/image values from
+  `tools/kata/config/asterinas-metadata.env`. This avoids cross-organization
+  `gh` access problems for repositories such as `jjf-dev/asterinas`.
+- The workflow summaries include `asterinas_metadata_source`, which is
+  `upstream` for live `asterinas/asterinas` metadata and `file` for pinned
+  metadata.
 
 ## Local virtio-fs note
 

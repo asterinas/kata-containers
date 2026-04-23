@@ -20,6 +20,7 @@ jobs:
       asterinas_version: ${{ steps.resolve.outputs.asterinas_version }}
       docker_image_version: ${{ steps.resolve.outputs.docker_image_version }}
       asterinas_builder_image: ${{ steps.resolve.outputs.asterinas_builder_image }}
+      asterinas_metadata_source: ${{ steps.resolve.outputs.asterinas_metadata_source }}
       kata_static_tarball_url: ${{ steps.resolve.outputs.kata_static_tarball_url }}
       kata_static_tarball_sha256: ${{ steps.resolve.outputs.kata_static_tarball_sha256 }}
     steps:
@@ -45,6 +46,7 @@ jobs:
             echo "- \`VERSION\`: \`${asterinas_version}\`"
             echo "- \`DOCKER_IMAGE_VERSION\`: \`${docker_image_version}\`"
             echo "- Base image: \`${asterinas_builder_image}\`"
+            echo "- Metadata source: \`${asterinas_metadata_source}\`"
             echo "- Kata static tarball: \`${kata_static_tarball_url}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 

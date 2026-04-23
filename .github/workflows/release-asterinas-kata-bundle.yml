@@ -48,15 +48,18 @@ jobs:
       asterinas_version: ${{ steps.load.outputs.asterinas_version }}
       docker_image_version: ${{ steps.load.outputs.docker_image_version }}
       asterinas_builder_image: ${{ steps.load.outputs.asterinas_builder_image }}
+      asterinas_metadata_source: ${{ steps.load.outputs.asterinas_metadata_source }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Load Asterinas Metadata
         id: load
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          bash tools/kata/asterinas_metadata.sh load
+          bash tools/kata/asterinas_metadata.sh resolve
 
       - name: Write Workflow Summary
         shell: bash
@@ -70,6 +73,7 @@ jobs:
             echo "- \`VERSION\`: \`${{ steps.load.outputs.asterinas_version }}\`"
             echo "- \`DOCKER_IMAGE_VERSION\`: \`${{ steps.load.outputs.docker_image_version }}\`"
             echo "- Builder image: \`${{ steps.load.outputs.asterinas_builder_image }}\`"
+            echo "- Metadata source: \`${{ steps.load.outputs.asterinas_metadata_source }}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
   build-asterinas-kernel:

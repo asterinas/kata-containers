@@ -31,7 +31,7 @@ metadata_env_file="${RESOLVED_ASSETS_ENV_FILE:-$(mktemp)}"
 
 [ -n "${kata_release_repository}" ] || die "KATA_RELEASE_REPOSITORY or GITHUB_REPOSITORY must be set"
 
-RESOLVED_ASTERINAS_METADATA_ENV_FILE="${metadata_env_file}" bash "${script_dir}/asterinas_metadata.sh" load
+RESOLVED_ASTERINAS_METADATA_ENV_FILE="${metadata_env_file}" bash "${script_dir}/asterinas_metadata.sh" resolve
 # shellcheck disable=SC1090
 . "${metadata_env_file}"
 
