@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - asterinas
+  schedule:
+    - cron: '10 03 * * *'
   workflow_dispatch:
     inputs:
       release_tag:
@@ -76,11 +78,65 @@ jobs:
             echo "- Metadata source: \`${{ steps.load.outputs.asterinas_metadata_source }}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
+  check-scheduled-release:
+    name: Check Whether Scheduled Release Is Needed
+    needs:
+      - load-asterinas-metadata
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.gate.outputs.should_build }}
+      skip_reason: ${{ steps.gate.outputs.skip_reason }}
+    steps:
+      - name: Check Scheduled Release Gate
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASTERINAS_METADATA_SOURCE: ${{ needs.load-asterinas-metadata.outputs.asterinas_metadata_source }}
+          DOCKER_IMAGE_VERSION: ${{ needs.load-asterinas-metadata.outputs.docker_image_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          should_build=true
+          skip_reason=""
+
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            if [[ "${ASTERINAS_METADATA_SOURCE}" != "upstream" ]]; then
+              should_build=false
+              skip_reason="Scheduled release runs only when Asterinas metadata resolves from asterinas/asterinas upstream."
+            elif gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate | python3 -c 'import json,re,sys; target=sys.argv[1]; pattern=re.compile(r"Asterinas Docker image version: `([^`]+)`"); releases=json.load(sys.stdin); sys.exit(0 if any(target in pattern.findall((release.get(\"body\") or \"\")) for release in releases) else 1)' "${DOCKER_IMAGE_VERSION}"
+            then
+              should_build=false
+              skip_reason="A release for Asterinas Docker image version ${DOCKER_IMAGE_VERSION} already exists."
+            fi
+          fi
+
+          echo "should_build=${should_build}" >> "${GITHUB_OUTPUT}"
+          {
+            echo 'skip_reason<<EOF'
+            printf '%s\n' "${skip_reason}"
+            echo 'EOF'
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo '## Scheduled release gate'
+            echo
+            echo "- Event: \`${GITHUB_EVENT_NAME}\`"
+            echo "- Asterinas Docker image version: \`${DOCKER_IMAGE_VERSION}\`"
+            echo "- Metadata source: \`${ASTERINAS_METADATA_SOURCE}\`"
+            echo "- Continue workflow: \`${should_build}\`"
+            if [[ -n "${skip_reason}" ]]; then
+              echo "- Skip reason: ${skip_reason}"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
   build-asterinas-kernel:
     name: Build Asterinas Kernel Artifact
+    if: ${{ needs.check-scheduled-release.outputs.should_build == 'true' }}
     runs-on: ubuntu-22.04
     needs:
       - load-asterinas-metadata
+      - check-scheduled-release
     outputs:
       asterinas_commit: ${{ steps.asterinas_commit.outputs.value }}
     container:
@@ -135,9 +191,11 @@ jobs:
 
   build-release-bundle:
     name: Build and Publish Kata Bundle with Asterinas as the Guest Kernel
+    if: ${{ needs.check-scheduled-release.outputs.should_build == 'true' }}
     runs-on: ubuntu-22.04
     needs:
       - load-asterinas-metadata
+      - check-scheduled-release
       - build-asterinas-kernel
     permissions:
       contents: write
@@ -222,7 +280,7 @@ jobs:
 
       - name: Derive Release Metadata
         id: release
-        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'schedule' }}
         env:
           WORKFLOW_RELEASE_TAG: ${{ inputs.release_tag }}
           WORKFLOW_RELEASE_NAME: ${{ inputs.release_name }}
@@ -249,7 +307,7 @@ jobs:
           echo "draft=${draft_release}" >> "${GITHUB_OUTPUT}"
 
       - name: Publish GitHub Release
-        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'schedule' }}
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}

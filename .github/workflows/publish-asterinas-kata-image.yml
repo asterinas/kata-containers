@@ -23,6 +23,8 @@ on:
         required: true
         default: true
         type: boolean
+  schedule:
+    - cron: '10 01 * * *'
   push:
     branches:
       - asterinas
@@ -91,14 +93,75 @@ jobs:
             echo "- Kata tarball SHA256: \`${kata_static_tarball_sha256}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-  build-asterinas-kata-image:
-    name: Build and Optionally Push Kata Image with Asterinas as the Guest Kernel
+  check-scheduled-publish:
+    name: Check Whether Scheduled Publish Is Needed
     needs:
       - resolve-asterinas-metadata
     runs-on: ubuntu-latest
+    outputs:
+      image_repository: ${{ steps.gate.outputs.image_repository }}
+      should_build: ${{ steps.gate.outputs.should_build }}
+      skip_reason: ${{ steps.gate.outputs.skip_reason }}
+    steps:
+      - name: Set Up Docker Buildx
+        if: ${{ github.event_name == 'schedule' }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Check Scheduled Publish Gate
+        id: gate
+        env:
+          DEFAULT_IMAGE_REPOSITORY: asterinas/kata
+          WORKFLOW_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          ASTERINAS_METADATA_SOURCE: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_metadata_source }}
+          DOCKER_IMAGE_VERSION: ${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_repository="${WORKFLOW_IMAGE_REPOSITORY:-${DEFAULT_IMAGE_REPOSITORY}}"
+          should_build=true
+          skip_reason=""
+
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            if [[ "${ASTERINAS_METADATA_SOURCE}" != "upstream" ]]; then
+              should_build=false
+              skip_reason="Scheduled publish runs only when Asterinas metadata resolves from asterinas/asterinas upstream."
+            elif docker buildx imagetools inspect "${image_repository}:${DOCKER_IMAGE_VERSION}" >/dev/null 2>&1; then
+              should_build=false
+              skip_reason="Image ${image_repository}:${DOCKER_IMAGE_VERSION} already exists."
+            fi
+          fi
+
+          echo "image_repository=${image_repository}" >> "${GITHUB_OUTPUT}"
+          echo "should_build=${should_build}" >> "${GITHUB_OUTPUT}"
+          {
+            echo 'skip_reason<<EOF'
+            printf '%s\n' "${skip_reason}"
+            echo 'EOF'
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo '## Scheduled publish gate'
+            echo
+            echo "- Event: \`${GITHUB_EVENT_NAME}\`"
+            echo "- Target image: \`${image_repository}:${DOCKER_IMAGE_VERSION}\`"
+            echo "- Metadata source: \`${ASTERINAS_METADATA_SOURCE}\`"
+            echo "- Continue workflow: \`${should_build}\`"
+            if [[ -n "${skip_reason}" ]]; then
+              echo "- Skip reason: ${skip_reason}"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  build-asterinas-kata-image:
+    name: Build and Optionally Push Kata Image with Asterinas as the Guest Kernel
+    if: ${{ needs.check-scheduled-publish.outputs.should_build == 'true' }}
+    needs:
+      - resolve-asterinas-metadata
+      - check-scheduled-publish
+    runs-on: ubuntu-latest
     env:
       ASTERINAS_BASE_IMAGE: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_builder_image }}
-      IMAGE_REPOSITORY: ${{ inputs.image_repository || 'asterinas/kata' }}
+      IMAGE_REPOSITORY: ${{ needs.check-scheduled-publish.outputs.image_repository }}
     steps:
       - uses: actions/checkout@v4
 

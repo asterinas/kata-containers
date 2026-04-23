@@ -60,6 +60,28 @@ Kata helpers live here.
   `upstream` for live `asterinas/asterinas` metadata and `file` for pinned
   metadata.
 
+## Scheduled Asterinas workflows
+
+- The Asterinas workflows keep their existing manual and push triggers. The
+  scheduled triggers only add daily background runs.
+- `Publish | Kata Image with Asterinas as the Guest Kernel` runs daily at
+  `01:10 UTC`. On scheduled runs, it builds and publishes only when metadata
+  comes from `asterinas/asterinas` and the target `asterinas/kata:<version>` tag
+  does not already exist.
+- `Release | Kata Bundle with Asterinas as the Guest Kernel` runs daily at
+  `03:10 UTC`. On scheduled runs, it builds and publishes only when metadata
+  comes from `asterinas/asterinas` and no existing release records the current
+  `DOCKER_IMAGE_VERSION`.
+- `Test | Kata with Asterinas as the Guest Kernel` runs daily at `05:10 UTC`.
+  Scheduled runs are unconditional and always execute the test matrix.
+- `Test | Documentation Flow for Kata with Asterinas as the Guest Kernel` runs
+  daily at `07:10 UTC`. Scheduled runs are unconditional and always execute the
+  documented flows.
+- While `tools/kata/config/asterinas-metadata.env` points at
+  `jjf-dev/asterinas`, scheduled publish and release runs stop at their gate
+  jobs. After switching to `asterinas/asterinas`, the same gates detect new
+  upstream versions and continue only when publication is needed.
+
 ## Local virtio-fs note
 
 - The local `bash tools/kata/run_kata.sh smoke` flow now uses `virtio-fs`.
