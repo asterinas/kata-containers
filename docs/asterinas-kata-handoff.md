@@ -70,6 +70,11 @@ Asterinas fields in the generated manifest and release notes:
 - `asterinas_version`
 - `asterinas_docker_image_version`
 
+The regular qemu-direct kernel is packaged as
+`/opt/kata/share/kata-containers/aster-kernel-osdk-bin.qemu_elf`. The TDX
+kernel is built from `asterinas/target/osdk/aster-kernel-osdk-bin` and packaged
+as `/opt/kata/share/kata-containers/aster-kernel-osdk-bin-tdx`.
+
 ## Docs Updated
 
 The following documentation has already been updated to match the new metadata

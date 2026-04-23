@@ -103,8 +103,10 @@ jobs:
 
           kernel_artifact_dir="${GITHUB_WORKSPACE}/build/asterinas-kernel"
           kernel_artifact_name="aster-kernel-osdk-bin.qemu_elf"
+          tdx_kernel_build_name="aster-kernel-osdk-bin"
+          tdx_kernel_artifact_name="${tdx_kernel_build_name}-tdx"
           kernel_artifact="${kernel_artifact_dir}/${kernel_artifact_name}"
-          tdx_kernel_artifact="${kernel_artifact}-tdx"
+          tdx_kernel_artifact="${kernel_artifact_dir}/${tdx_kernel_artifact_name}"
 
           mkdir -p "${kernel_artifact_dir}"
 
@@ -112,7 +114,7 @@ jobs:
           install -m 0755 "asterinas/target/osdk/${kernel_artifact_name}" "${kernel_artifact}"
 
           make -C asterinas kernel BOOT_METHOD=qemu-direct INTEL_TDX=1
-          install -m 0755 "asterinas/target/osdk/${kernel_artifact_name}" "${tdx_kernel_artifact}"
+          install -m 0755 "asterinas/target/osdk/${tdx_kernel_build_name}" "${tdx_kernel_artifact}"
 
           test -f "${kernel_artifact}"
           test -f "${tdx_kernel_artifact}"
@@ -123,7 +125,7 @@ jobs:
           name: asterinas-kernel-amd64
           path: |
             build/asterinas-kernel/aster-kernel-osdk-bin.qemu_elf
-            build/asterinas-kernel/aster-kernel-osdk-bin.qemu_elf-tdx
+            build/asterinas-kernel/aster-kernel-osdk-bin-tdx
           if-no-files-found: error
           retention-days: 7
 
@@ -178,7 +180,7 @@ jobs:
         env:
           ARCHITECTURE: amd64
           ASTERINAS_KERNEL: ${{ github.workspace }}/build/asterinas-kernel/aster-kernel-osdk-bin.qemu_elf
-          ASTERINAS_TDX_KERNEL: ${{ github.workspace }}/build/asterinas-kernel/aster-kernel-osdk-bin.qemu_elf-tdx
+          ASTERINAS_TDX_KERNEL: ${{ github.workspace }}/build/asterinas-kernel/aster-kernel-osdk-bin-tdx
           ASTERINAS_REPOSITORY: ${{ needs.load-asterinas-metadata.outputs.asterinas_repository }}
           ASTERINAS_REF: ${{ needs.load-asterinas-metadata.outputs.asterinas_ref }}
           ASTERINAS_COMMIT: ${{ needs.build-asterinas-kernel.outputs.asterinas_commit }}
@@ -196,7 +198,7 @@ jobs:
           set -euo pipefail
 
           tar -I zstd -tf "${{ steps.bundle.outputs.release_asset }}" | grep -E '(^|/)opt/kata/share/kata-containers/aster-kernel-osdk-bin\.qemu_elf$'
-          tar -I zstd -tf "${{ steps.bundle.outputs.release_asset }}" | grep -E '(^|/)opt/kata/share/kata-containers/aster-kernel-osdk-bin\.qemu_elf-tdx$'
+          tar -I zstd -tf "${{ steps.bundle.outputs.release_asset }}" | grep -E '(^|/)opt/kata/share/kata-containers/aster-kernel-osdk-bin-tdx$'
           tar -I zstd -tf "${{ steps.bundle.outputs.release_asset }}" | grep -F "opt/kata/share/kata-containers/tools/kata/kata_env.sh"
           tar -I zstd -tf "${{ steps.bundle.outputs.release_asset }}" | grep -F "opt/kata/share/kata-containers/tools/kata/run_kata.sh"
           tar -I zstd -tf "${{ steps.bundle.outputs.release_asset }}" | grep -F "opt/kata/share/kata-containers/tools/kata/kata_services.sh"

@@ -79,6 +79,12 @@ under `/opt/kata/share/kata-containers/tools/kata`, so CI and downstream image
 builds can reuse the same repo-owned helper set that is exercised by the
 `test-asterinas-kata` workflow.
 
+The release workflow packages the regular Asterinas qemu-direct kernel as
+`/opt/kata/share/kata-containers/aster-kernel-osdk-bin.qemu_elf` and the TDX
+kernel as `/opt/kata/share/kata-containers/aster-kernel-osdk-bin-tdx`. The TDX
+kernel source artifact is `asterinas/target/osdk/aster-kernel-osdk-bin` after
+the `INTEL_TDX=1` build.
+
 The [publish-asterinas-kata-image](https://github.com/kata-containers/kata-containers/actions/workflows/publish-asterinas-kata-image.yml)
 workflow builds the matching Docker Hub image. It reads the pinned Asterinas
 source/image metadata from `tools/kata/config/asterinas-metadata.env`, layers the repo-owned

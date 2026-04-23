@@ -43,9 +43,9 @@ KATA_SHARE_DIR_REL="opt/kata/share/kata-containers"
 KATA_DEFAULTS_DIR_REL="opt/kata/share/defaults/kata-containers"
 KATA_TOOLS_DIR_REL="${KATA_SHARE_DIR_REL}/tools/kata"
 ASTERINAS_KERNEL_NAME="aster-kernel-osdk-bin.qemu_elf"
-ASTERINAS_TDX_KERNEL_NAME="${ASTERINAS_KERNEL_NAME}-tdx"
+ASTERINAS_TDX_KERNEL_NAME="aster-kernel-osdk-bin-tdx"
 ASTERINAS_KERNEL_PATH="/opt/kata/share/kata-containers/${ASTERINAS_KERNEL_NAME}"
-ASTERINAS_TDX_KERNEL_PATH="${ASTERINAS_KERNEL_PATH}-tdx"
+ASTERINAS_TDX_KERNEL_PATH="/opt/kata/share/kata-containers/${ASTERINAS_TDX_KERNEL_NAME}"
 INITRD_PATH="/opt/kata/share/kata-containers/kata-containers-initrd.img"
 LINUX_TEST_KERNEL_LINK="vmlinux-test.container"
 
@@ -90,7 +90,7 @@ path_was_rebuilt() {
 		opt/kata/share/kata-containers/"${initrd_target_name}")
 			return 0
 			;;
-		opt/kata/share/kata-containers/aster-kernel-osdk-bin.qemu_elf-tdx)
+		opt/kata/share/kata-containers/aster-kernel-osdk-bin-tdx)
 			if [ -n "${ASTERINAS_TDX_KERNEL}" ]; then
 				return 0
 			fi
