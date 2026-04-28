@@ -1,0 +1,245 @@
+name: Publish | Kata Image with Asterinas as the Guest Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_repository:
+        description: Docker Hub repository to publish
+        required: false
+        default: asterinas/kata
+        type: string
+      kata_static_tarball_release_repo:
+        description: GitHub repository used by `kata_env.sh install`
+        required: false
+        default: ""
+        type: string
+      kata_static_tarball_url:
+        description: Optional explicit Kata static tarball with Asterinas as the guest kernel URL
+        required: false
+        default: ""
+        type: string
+      push_image:
+        description: Push the image when Docker Hub credentials are available
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    - cron: '10 01 * * *'
+  push:
+    branches:
+      - asterinas
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-asterinas-metadata:
+    name: Load Asterinas Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      asterinas_repository: ${{ steps.resolve.outputs.asterinas_repository }}
+      asterinas_ref: ${{ steps.resolve.outputs.asterinas_ref }}
+      asterinas_commit: ${{ steps.resolve.outputs.asterinas_commit }}
+      asterinas_version: ${{ steps.resolve.outputs.asterinas_version }}
+      docker_image_version: ${{ steps.resolve.outputs.docker_image_version }}
+      asterinas_builder_image: ${{ steps.resolve.outputs.asterinas_builder_image }}
+      asterinas_metadata_source: ${{ steps.resolve.outputs.asterinas_metadata_source }}
+      kata_static_tarball_release_repo: ${{ steps.resolve.outputs.kata_static_tarball_release_repo }}
+      kata_static_tarball_url: ${{ steps.resolve.outputs.kata_static_tarball_url }}
+      kata_static_tarball_sha256: ${{ steps.resolve.outputs.kata_static_tarball_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Publish Inputs
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_IMAGE_REPOSITORY: asterinas/kata
+          WORKFLOW_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          WORKFLOW_RELEASE_REPO: ${{ inputs.kata_static_tarball_release_repo }}
+          WORKFLOW_STATIC_TARBALL_URL: ${{ inputs.kata_static_tarball_url }}
+          RESOLVED_ASSETS_ENV_FILE: /tmp/asterinas-release-assets.env
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_repository="${WORKFLOW_IMAGE_REPOSITORY:-${DEFAULT_IMAGE_REPOSITORY}}"
+          kata_static_tarball_release_repo="${WORKFLOW_RELEASE_REPO:-${GITHUB_REPOSITORY}}"
+          export KATA_RELEASE_REPOSITORY="${kata_static_tarball_release_repo}"
+          export KATA_STATIC_TARBALL_URL="${WORKFLOW_STATIC_TARBALL_URL:-}"
+
+          bash tools/kata/resolve_release_assets.sh
+          . "${RESOLVED_ASSETS_ENV_FILE}"
+
+          echo "kata_static_tarball_release_repo=${kata_static_tarball_release_repo}" >> "${GITHUB_OUTPUT}"
+
+          {
+            echo '## Loaded Asterinas metadata and Kata image inputs'
+            echo
+            echo "- Repository: \`${asterinas_repository}\`"
+            echo "- Ref: \`${asterinas_ref}\`"
+            echo "- Commit: \`${asterinas_commit}\`"
+            echo "- \`VERSION\`: \`${asterinas_version}\`"
+            echo "- \`DOCKER_IMAGE_VERSION\`: \`${docker_image_version}\`"
+            echo "- Base image: \`${asterinas_builder_image}\`"
+            echo "- Metadata source: \`${asterinas_metadata_source}\`"
+            echo "- Target image: \`${image_repository}:${docker_image_version}\`"
+            echo "- Kata tarball release repo: \`${kata_static_tarball_release_repo}\`"
+            if [ -n "${kata_static_tarball_url}" ]; then
+              echo "- Explicit Kata tarball URL: \`${kata_static_tarball_url}\`"
+            else
+              echo "- Explicit Kata tarball URL: not set"
+            fi
+            echo "- Kata tarball SHA256: \`${kata_static_tarball_sha256}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  check-scheduled-publish:
+    name: Check Whether Scheduled Publish Is Needed
+    needs:
+      - resolve-asterinas-metadata
+    runs-on: ubuntu-latest
+    outputs:
+      image_repository: ${{ steps.gate.outputs.image_repository }}
+      should_build: ${{ steps.gate.outputs.should_build }}
+      skip_reason: ${{ steps.gate.outputs.skip_reason }}
+    steps:
+      - name: Set Up Docker Buildx
+        if: ${{ github.event_name == 'schedule' }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Check Scheduled Publish Gate
+        id: gate
+        env:
+          DEFAULT_IMAGE_REPOSITORY: asterinas/kata
+          WORKFLOW_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
+          ASTERINAS_METADATA_SOURCE: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_metadata_source }}
+          DOCKER_IMAGE_VERSION: ${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_repository="${WORKFLOW_IMAGE_REPOSITORY:-${DEFAULT_IMAGE_REPOSITORY}}"
+          should_build=true
+          skip_reason=""
+
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            if [[ "${ASTERINAS_METADATA_SOURCE}" != "upstream" ]]; then
+              should_build=false
+              skip_reason="Scheduled publish runs only when Asterinas metadata resolves from asterinas/asterinas upstream."
+            elif docker buildx imagetools inspect "${image_repository}:${DOCKER_IMAGE_VERSION}" >/dev/null 2>&1; then
+              should_build=false
+              skip_reason="Image ${image_repository}:${DOCKER_IMAGE_VERSION} already exists."
+            fi
+          fi
+
+          echo "image_repository=${image_repository}" >> "${GITHUB_OUTPUT}"
+          echo "should_build=${should_build}" >> "${GITHUB_OUTPUT}"
+          {
+            echo 'skip_reason<<EOF'
+            printf '%s\n' "${skip_reason}"
+            echo 'EOF'
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo '## Scheduled publish gate'
+            echo
+            echo "- Event: \`${GITHUB_EVENT_NAME}\`"
+            echo "- Target image: \`${image_repository}:${DOCKER_IMAGE_VERSION}\`"
+            echo "- Metadata source: \`${ASTERINAS_METADATA_SOURCE}\`"
+            echo "- Continue workflow: \`${should_build}\`"
+            if [[ -n "${skip_reason}" ]]; then
+              echo "- Skip reason: ${skip_reason}"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  build-asterinas-kata-image:
+    name: Build and Optionally Push Kata Image with Asterinas as the Guest Kernel
+    if: ${{ needs.check-scheduled-publish.outputs.should_build == 'true' }}
+    needs:
+      - resolve-asterinas-metadata
+      - check-scheduled-publish
+    runs-on: ubuntu-latest
+    env:
+      ASTERINAS_BASE_IMAGE: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_builder_image }}
+      IMAGE_REPOSITORY: ${{ needs.check-scheduled-publish.outputs.image_repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Push Setting
+        id: publish
+        env:
+          WORKFLOW_PUSH_IMAGE: ${{ inputs.push_image }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          should_push=false
+          if [ -n "${DOCKERHUB_USERNAME}" ] && [ -n "${DOCKERHUB_TOKEN}" ]; then
+            case "${WORKFLOW_PUSH_IMAGE:-true}" in
+              false)
+                should_push=false
+                ;;
+              *)
+                should_push=true
+                ;;
+            esac
+          fi
+
+          echo "should_push=${should_push}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set Up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log In to Docker Hub
+        if: ${{ steps.publish.outputs.should_push == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and Optionally Push Image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: tools/packaging/asterinas-kata/Dockerfile
+          platforms: linux/amd64
+          load: ${{ steps.publish.outputs.should_push != 'true' }}
+          push: ${{ steps.publish.outputs.should_push == 'true' }}
+          provenance: false
+          tags: |
+            ${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.description=Asterinas base image with Kata helpers and Kata environment preinstalled
+            org.opencontainers.image.version=${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
+            org.opencontainers.image.base.name=${{ env.ASTERINAS_BASE_IMAGE }}
+            io.asterinas.version=${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}
+          build-args: |
+            ASTERINAS_BASE_IMAGE=${{ env.ASTERINAS_BASE_IMAGE }}
+            KATA_STATIC_TARBALL_RELEASE_REPO=${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_release_repo }}
+            KATA_STATIC_TARBALL_URL=${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_url }}
+            KATA_STATIC_TARBALL_SHA256=${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_sha256 }}
+            ASTERINAS_RELEASE_VERSION=${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}
+            ASTERINAS_DOCKER_IMAGE_VERSION=${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
+
+      - name: Verify Local Image Metadata
+        if: ${{ steps.publish.outputs.should_push != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image inspect "${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}" >/dev/null
+
+      - name: Write Workflow Summary
+        shell: bash
+        run: |
+          {
+            echo '## Kata image result for the Asterinas guest kernel'
+            echo
+            echo "- Image: \`${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}\`"
+            echo "- Base image: \`${{ env.ASTERINAS_BASE_IMAGE }}\`"
+            echo "- Asterinas version: \`${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}\`"
+            echo "- Push enabled: \`${{ steps.publish.outputs.should_push }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

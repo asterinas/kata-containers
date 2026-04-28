@@ -1,0 +1,74 @@
+name: Test | Asterinas Upstream Metadata Access
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - asterinas
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-asterinas-main-metadata:
+    name: Resolve asterinas/asterinas@main Metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve Upstream Metadata
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASTERINAS_REPOSITORY: asterinas/asterinas
+          ASTERINAS_REF: main
+          ASTERINAS_METADATA_FILE: ${{ runner.temp }}/asterinas-main-metadata.env
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cat > "${ASTERINAS_METADATA_FILE}" <<EOF
+          ASTERINAS_REPOSITORY=${ASTERINAS_REPOSITORY}
+          ASTERINAS_REF=${ASTERINAS_REF}
+          ASTERINAS_COMMIT=0000000000000000000000000000000000000000
+          ASTERINAS_VERSION=from-file-should-not-be-used
+          ASTERINAS_DOCKER_IMAGE_VERSION=from-file-should-not-be-used
+          EOF
+
+          bash tools/kata/asterinas_metadata.sh resolve --file "${ASTERINAS_METADATA_FILE}"
+
+      - name: Verify Resolved Metadata
+        env:
+          ASTERINAS_REPOSITORY: ${{ steps.resolve.outputs.asterinas_repository }}
+          ASTERINAS_REF: ${{ steps.resolve.outputs.asterinas_ref }}
+          ASTERINAS_COMMIT: ${{ steps.resolve.outputs.asterinas_commit }}
+          ASTERINAS_VERSION: ${{ steps.resolve.outputs.asterinas_version }}
+          ASTERINAS_DOCKER_IMAGE_VERSION: ${{ steps.resolve.outputs.docker_image_version }}
+          ASTERINAS_BUILDER_IMAGE: ${{ steps.resolve.outputs.asterinas_builder_image }}
+          ASTERINAS_METADATA_SOURCE: ${{ steps.resolve.outputs.asterinas_metadata_source }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test "${ASTERINAS_REPOSITORY}" = "asterinas/asterinas"
+          test "${ASTERINAS_REF}" = "main"
+          [[ "${ASTERINAS_COMMIT}" =~ ^[0-9a-f]{40}$ ]]
+          test "${ASTERINAS_COMMIT}" != "0000000000000000000000000000000000000000"
+          test -n "${ASTERINAS_VERSION}"
+          test "${ASTERINAS_VERSION}" != "from-file-should-not-be-used"
+          test -n "${ASTERINAS_DOCKER_IMAGE_VERSION}"
+          test "${ASTERINAS_DOCKER_IMAGE_VERSION}" != "from-file-should-not-be-used"
+          test "${ASTERINAS_BUILDER_IMAGE}" = "asterinas/asterinas:${ASTERINAS_DOCKER_IMAGE_VERSION}"
+          test "${ASTERINAS_METADATA_SOURCE}" = "upstream"
+
+          {
+            echo '## Verified Asterinas upstream metadata access'
+            echo
+            echo "- Repository: \`${ASTERINAS_REPOSITORY}\`"
+            echo "- Ref: \`${ASTERINAS_REF}\`"
+            echo "- Commit: \`${ASTERINAS_COMMIT}\`"
+            echo "- \`VERSION\`: \`${ASTERINAS_VERSION}\`"
+            echo "- \`DOCKER_IMAGE_VERSION\`: \`${ASTERINAS_DOCKER_IMAGE_VERSION}\`"
+            echo "- Builder image: \`${ASTERINAS_BUILDER_IMAGE}\`"
+            echo "- Metadata source: \`${ASTERINAS_METADATA_SOURCE}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

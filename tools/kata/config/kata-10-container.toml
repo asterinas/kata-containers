@@ -1,0 +1,18 @@
+[hypervisor.qemu]
+enable_debug = true
+disable_nesting_checks = true
+default_memory = 4096
+shared_fs = "virtio-fs"
+virtio_fs_daemon = "/opt/kata/libexec/virtiofsd"
+valid_virtio_fs_daemon_paths = ["/opt/kata/libexec/virtiofsd"]
+file_mem_backend = "/tmp"
+
+[agent.kata]
+enable_debug = true
+dial_timeout = 180
+
+[runtime]
+enable_debug = true
+disable_new_netns = true
+internetworking_model = "none"
+create_container_timeout = 180

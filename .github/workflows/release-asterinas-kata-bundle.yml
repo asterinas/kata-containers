@@ -1,0 +1,362 @@
+name: Release | Kata Bundle with Asterinas as the Guest Kernel
+
+on:
+  push:
+    branches:
+      - asterinas
+  schedule:
+    - cron: '10 03 * * *'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Git tag to create or update for this Asterinas release
+        required: true
+        type: string
+      release_name:
+        description: Optional display name for the GitHub release
+        required: false
+        type: string
+      draft_release:
+        description: Create the GitHub release as a draft
+        required: true
+        default: true
+        type: boolean
+      force_runtime_build:
+        description: Rebuild kata-runtime even if src/runtime matches the upstream release tag
+        required: true
+        default: false
+        type: boolean
+      kata_static_release_repository:
+        description: Repository used as the official Kata base release source
+        required: true
+        default: kata-containers/kata-containers
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  FORCE_RUNTIME_BUILD: ${{ inputs.force_runtime_build || false }}
+  KATA_STATIC_RELEASE_REPOSITORY: ${{ inputs.kata_static_release_repository || 'kata-containers/kata-containers' }}
+
+jobs:
+  load-asterinas-metadata:
+    name: Load Asterinas Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      asterinas_repository: ${{ steps.load.outputs.asterinas_repository }}
+      asterinas_ref: ${{ steps.load.outputs.asterinas_ref }}
+      asterinas_commit: ${{ steps.load.outputs.asterinas_commit }}
+      asterinas_version: ${{ steps.load.outputs.asterinas_version }}
+      docker_image_version: ${{ steps.load.outputs.docker_image_version }}
+      asterinas_builder_image: ${{ steps.load.outputs.asterinas_builder_image }}
+      asterinas_metadata_source: ${{ steps.load.outputs.asterinas_metadata_source }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load Asterinas Metadata
+        id: load
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/kata/asterinas_metadata.sh resolve
+
+      - name: Write Workflow Summary
+        shell: bash
+        run: |
+          {
+            echo '## Loaded Asterinas metadata'
+            echo
+            echo "- Repository: \`${{ steps.load.outputs.asterinas_repository }}\`"
+            echo "- Ref: \`${{ steps.load.outputs.asterinas_ref }}\`"
+            echo "- Commit: \`${{ steps.load.outputs.asterinas_commit }}\`"
+            echo "- \`VERSION\`: \`${{ steps.load.outputs.asterinas_version }}\`"
+            echo "- \`DOCKER_IMAGE_VERSION\`: \`${{ steps.load.outputs.docker_image_version }}\`"
+            echo "- Builder image: \`${{ steps.load.outputs.asterinas_builder_image }}\`"
+            echo "- Metadata source: \`${{ steps.load.outputs.asterinas_metadata_source }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  check-scheduled-release:
+    name: Check Whether Scheduled Release Is Needed
+    needs:
+      - load-asterinas-metadata
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.gate.outputs.should_build }}
+      skip_reason: ${{ steps.gate.outputs.skip_reason }}
+    steps:
+      - name: Check Scheduled Release Gate
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASTERINAS_METADATA_SOURCE: ${{ needs.load-asterinas-metadata.outputs.asterinas_metadata_source }}
+          DOCKER_IMAGE_VERSION: ${{ needs.load-asterinas-metadata.outputs.docker_image_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          should_build=true
+          skip_reason=""
+
+          if [[ "${GITHUB_EVENT_NAME}" == "schedule" ]]; then
+            if [[ "${ASTERINAS_METADATA_SOURCE}" != "upstream" ]]; then
+              should_build=false
+              skip_reason="Scheduled release runs only when Asterinas metadata resolves from asterinas/asterinas upstream."
+            elif gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate | python3 -c 'import json,re,sys; target=sys.argv[1]; pattern=re.compile(r"Asterinas Docker image version: `([^`]+)`"); releases=json.load(sys.stdin); sys.exit(0 if any(target in pattern.findall((release.get(\"body\") or \"\")) for release in releases) else 1)' "${DOCKER_IMAGE_VERSION}"
+            then
+              should_build=false
+              skip_reason="A release for Asterinas Docker image version ${DOCKER_IMAGE_VERSION} already exists."
+            fi
+          fi
+
+          echo "should_build=${should_build}" >> "${GITHUB_OUTPUT}"
+          {
+            echo 'skip_reason<<EOF'
+            printf '%s\n' "${skip_reason}"
+            echo 'EOF'
+          } >> "${GITHUB_OUTPUT}"
+
+          {
+            echo '## Scheduled release gate'
+            echo
+            echo "- Event: \`${GITHUB_EVENT_NAME}\`"
+            echo "- Asterinas Docker image version: \`${DOCKER_IMAGE_VERSION}\`"
+            echo "- Metadata source: \`${ASTERINAS_METADATA_SOURCE}\`"
+            echo "- Continue workflow: \`${should_build}\`"
+            if [[ -n "${skip_reason}" ]]; then
+              echo "- Skip reason: ${skip_reason}"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  build-asterinas-kernel:
+    name: Build Asterinas Kernel Artifact
+    if: ${{ needs.check-scheduled-release.outputs.should_build == 'true' }}
+    runs-on: ubuntu-22.04
+    needs:
+      - load-asterinas-metadata
+      - check-scheduled-release
+    outputs:
+      asterinas_commit: ${{ steps.asterinas_commit.outputs.value }}
+    container:
+      image: ${{ needs.load-asterinas-metadata.outputs.asterinas_builder_image }}
+    steps:
+      - name: Check Out Asterinas
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.load-asterinas-metadata.outputs.asterinas_repository }}
+          ref: ${{ needs.load-asterinas-metadata.outputs.asterinas_commit }}
+          path: asterinas
+
+      - name: Record Asterinas Commit
+        id: asterinas_commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "value=$(git -C asterinas rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Build qemu-direct Kernels
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kernel_artifact_dir="${GITHUB_WORKSPACE}/build/asterinas-kernel"
+          kernel_artifact_name="aster-kernel-osdk-bin.qemu_elf"
+          tdx_kernel_build_name="aster-kernel-osdk-bin"
+          tdx_kernel_artifact_name="${tdx_kernel_build_name}-tdx"
+          kernel_artifact="${kernel_artifact_dir}/${kernel_artifact_name}"
+          tdx_kernel_artifact="${kernel_artifact_dir}/${tdx_kernel_artifact_name}"
+
+          mkdir -p "${kernel_artifact_dir}"
+
+          make -C asterinas kernel BOOT_METHOD=qemu-direct
+          install -m 0755 "asterinas/target/osdk/${kernel_artifact_name}" "${kernel_artifact}"
+
+          make -C asterinas kernel BOOT_METHOD=qemu-direct INTEL_TDX=1
+          install -m 0755 "asterinas/target/osdk/${tdx_kernel_build_name}" "${tdx_kernel_artifact}"
+
+          test -f "${kernel_artifact}"
+          test -f "${tdx_kernel_artifact}"
+
+      - name: Upload Kernel Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: asterinas-kernel-amd64
+          path: |
+            build/asterinas-kernel/aster-kernel-osdk-bin.qemu_elf
+            build/asterinas-kernel/aster-kernel-osdk-bin-tdx
+          if-no-files-found: error
+          retention-days: 7
+
+  build-release-bundle:
+    name: Build and Publish Kata Bundle with Asterinas as the Guest Kernel
+    if: ${{ needs.check-scheduled-release.outputs.should_build == 'true' }}
+    runs-on: ubuntu-22.04
+    needs:
+      - load-asterinas-metadata
+      - check-scheduled-release
+      - build-asterinas-kernel
+    permissions:
+      contents: write
+    steps:
+      - name: Check Out kata-containers
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Derive Go Version from versions.yaml
+        id: go_version
+        shell: bash
+        run: |
+          go_version="$(awk '
+            $1 == "languages:" { in_languages=1; next }
+            in_languages && $1 == "golang:" { in_golang=1; next }
+            in_golang && $1 == "version:" {
+              gsub(/"/, "", $2)
+              print $2
+              exit
+            }
+          ' versions.yaml)"
+          test -n "${go_version}"
+          echo "value=${go_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set Up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ steps.go_version.outputs.value }}
+
+      - name: Install Packaging Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cpio zstd
+
+      - name: Download Asterinas Kernel Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: asterinas-kernel-amd64
+          path: build/asterinas-kernel
+
+      - name: Build Kata Tarball with Asterinas as the Guest Kernel
+        id: bundle
+        env:
+          ARCHITECTURE: amd64
+          ASTERINAS_KERNEL: ${{ github.workspace }}/build/asterinas-kernel/aster-kernel-osdk-bin.qemu_elf
+          ASTERINAS_TDX_KERNEL: ${{ github.workspace }}/build/asterinas-kernel/aster-kernel-osdk-bin-tdx
+          ASTERINAS_REPOSITORY: ${{ needs.load-asterinas-metadata.outputs.asterinas_repository }}
+          ASTERINAS_REF: ${{ needs.load-asterinas-metadata.outputs.asterinas_ref }}
+          ASTERINAS_COMMIT: ${{ needs.build-asterinas-kernel.outputs.asterinas_commit }}
+          ASTERINAS_VERSION: ${{ needs.load-asterinas-metadata.outputs.asterinas_version }}
+          ASTERINAS_DOCKER_IMAGE_VERSION: ${{ needs.load-asterinas-metadata.outputs.docker_image_version }}
+          ASTERINAS_BUILDER_IMAGE: ${{ needs.load-asterinas-metadata.outputs.asterinas_builder_image }}
+          FORCE_RUNTIME_BUILD: ${{ env.FORCE_RUNTIME_BUILD }}
+          KATA_STATIC_RELEASE_REPOSITORY: ${{ env.KATA_STATIC_RELEASE_REPOSITORY }}
+        run: |
+          chmod +x ./tools/packaging/release/build-asterinas-release.sh
+          ./tools/packaging/release/build-asterinas-release.sh
+
+      - name: Verify Packaged Release Contents
+        run: |
+          set -euo pipefail
+
+          tar -I zstd -tf "${{ steps.bundle.outputs.release_asset }}" | grep -E '(^|/)opt/kata/share/kata-containers/aster-kernel-osdk-bin\.qemu_elf$'
+          tar -I zstd -tf "${{ steps.bundle.outputs.release_asset }}" | grep -E '(^|/)opt/kata/share/kata-containers/aster-kernel-osdk-bin-tdx$'
+          tar -I zstd -tf "${{ steps.bundle.outputs.release_asset }}" | grep -F "opt/kata/share/kata-containers/tools/kata/kata_env.sh"
+          tar -I zstd -tf "${{ steps.bundle.outputs.release_asset }}" | grep -F "opt/kata/share/kata-containers/tools/kata/run_kata.sh"
+          tar -I zstd -tf "${{ steps.bundle.outputs.release_asset }}" | grep -F "opt/kata/share/kata-containers/tools/kata/kata_services.sh"
+
+      - name: Upload Workflow Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: asterinas-kata-release
+          path: |
+            ${{ steps.bundle.outputs.release_asset }}
+            ${{ steps.bundle.outputs.manifest_file }}
+            ${{ steps.bundle.outputs.checksums_file }}
+            ${{ steps.bundle.outputs.build_summary }}
+            ${{ steps.bundle.outputs.release_notes }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Derive Release Metadata
+        id: release
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'schedule' }}
+        env:
+          WORKFLOW_RELEASE_TAG: ${{ inputs.release_tag }}
+          WORKFLOW_RELEASE_NAME: ${{ inputs.release_name }}
+          WORKFLOW_DRAFT_RELEASE: ${{ inputs.draft_release }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(<VERSION)"
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            release_tag="${WORKFLOW_RELEASE_TAG}"
+            release_name="${WORKFLOW_RELEASE_NAME}"
+            draft_release="${WORKFLOW_DRAFT_RELEASE}"
+          else
+            version="${version}-$(date -u +%Y%m%d)"
+            release_tag="${version}-asterinas"
+            release_name="Kata with Asterinas as the Guest Kernel ${version}"
+            draft_release="false"
+          fi
+
+          echo "tag=${release_tag}" >> "${GITHUB_OUTPUT}"
+          echo "name=${release_name}" >> "${GITHUB_OUTPUT}"
+          echo "draft=${draft_release}" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish GitHub Release
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event_name == 'schedule' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_NAME: ${{ steps.release.outputs.name }}
+          DRAFT_RELEASE: ${{ steps.release.outputs.draft }}
+          RELEASE_ASSET: ${{ steps.bundle.outputs.release_asset }}
+          MANIFEST_FILE: ${{ steps.bundle.outputs.manifest_file }}
+          CHECKSUMS_FILE: ${{ steps.bundle.outputs.checksums_file }}
+          BUILD_SUMMARY: ${{ steps.bundle.outputs.build_summary }}
+          RELEASE_NOTES: ${{ steps.bundle.outputs.release_notes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          title="${RELEASE_NAME:-${RELEASE_TAG}}"
+          asset_args=(
+            "${RELEASE_ASSET}"
+            "${MANIFEST_FILE}"
+            "${CHECKSUMS_FILE}"
+            "${BUILD_SUMMARY}"
+          )
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]] && gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} already exists; skipping publish for duplicate push build."
+            exit 0
+          fi
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            edit_draft_flag=(--draft=false)
+            if [[ "${DRAFT_RELEASE}" == "true" ]]; then
+              edit_draft_flag=(--draft)
+            fi
+
+            gh release edit "${RELEASE_TAG}" \
+              --title "${title}" \
+              --notes-file "${RELEASE_NOTES}" \
+              --target "${GITHUB_SHA}" \
+              "${edit_draft_flag[@]}"
+            gh release upload "${RELEASE_TAG}" "${asset_args[@]}" --clobber
+          else
+            draft_flag=()
+            if [[ "${DRAFT_RELEASE}" == "true" ]]; then
+              draft_flag+=(--draft)
+            fi
+
+            gh release create "${RELEASE_TAG}" \
+              "${asset_args[@]}" \
+              --title "${title}" \
+              --notes-file "${RELEASE_NOTES}" \
+              --target "${GITHUB_SHA}" \
+              "${draft_flag[@]}"
+          fi

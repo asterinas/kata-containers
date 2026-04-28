@@ -1,0 +1,180 @@
+name: Test | Documentation Flow for Kata with Asterinas as the Guest Kernel
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '10 07 * * *'
+  push:
+    branches:
+      - asterinas
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-asterinas-metadata:
+    name: Load Asterinas Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      asterinas_repository: ${{ steps.resolve.outputs.asterinas_repository }}
+      asterinas_ref: ${{ steps.resolve.outputs.asterinas_ref }}
+      asterinas_commit: ${{ steps.resolve.outputs.asterinas_commit }}
+      asterinas_version: ${{ steps.resolve.outputs.asterinas_version }}
+      docker_image_version: ${{ steps.resolve.outputs.docker_image_version }}
+      asterinas_builder_image: ${{ steps.resolve.outputs.asterinas_builder_image }}
+      asterinas_metadata_source: ${{ steps.resolve.outputs.asterinas_metadata_source }}
+      kata_static_tarball_url: ${{ steps.resolve.outputs.kata_static_tarball_url }}
+      kata_static_tarball_sha256: ${{ steps.resolve.outputs.kata_static_tarball_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load Asterinas Metadata
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KATA_RELEASE_REPOSITORY: ${{ github.repository }}
+          RESOLVED_ASSETS_ENV_FILE: /tmp/asterinas-release-assets.env
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/kata/resolve_release_assets.sh
+          . "${RESOLVED_ASSETS_ENV_FILE}"
+          {
+            echo '## Loaded Asterinas metadata'
+            echo
+            echo "- Repository: \`${asterinas_repository}\`"
+            echo "- Ref: \`${asterinas_ref}\`"
+            echo "- Commit: \`${asterinas_commit}\`"
+            echo "- \`VERSION\`: \`${asterinas_version}\`"
+            echo "- \`DOCKER_IMAGE_VERSION\`: \`${docker_image_version}\`"
+            echo "- Base image: \`${asterinas_builder_image}\`"
+            echo "- Metadata source: \`${asterinas_metadata_source}\`"
+            echo "- Kata static tarball: \`${kata_static_tarball_url}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  test-documented-end-user-flow:
+    name: Test Documented End-User Flow
+    needs:
+      - resolve-asterinas-metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      KATA_DOC_LOG_DIR: /tmp/asterinas-kata-doc-logs/end-user
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Host Device Visibility
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ls -l /dev/kvm /dev/vhost-net /dev/vhost-vsock
+          ls -l /dev/vsock || true
+
+      - name: Install pexpect if Needed
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if ! python3 - <<'PY'
+          import importlib.util
+          import sys
+          sys.exit(0 if importlib.util.find_spec("pexpect") else 1)
+          PY
+          then
+            python3 -m pip install --user pexpect
+          fi
+
+      - name: Pull Published Kata with Asterinas as the Guest Kernel Image
+        shell: bash
+        run: |
+          set -euxo pipefail
+          docker pull "asterinas/kata:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}"
+
+      - name: Replay Documented End-User Flow
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -u tools/kata/interactive_doc_test.py \
+            --scenario end-user \
+            --kata-image "asterinas/kata:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}" \
+            --log-dir "${KATA_DOC_LOG_DIR}"
+
+      - name: Upload End-User Flow Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asterinas-kata-doc-end-user-logs
+          path: ${{ env.KATA_DOC_LOG_DIR }}
+          if-no-files-found: ignore
+
+  test-documented-kernel-developer-flow:
+    name: Test Documented Kernel-Developer Flow
+    needs:
+      - resolve-asterinas-metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      KATA_DOC_LOG_DIR: /tmp/asterinas-kata-doc-logs/kernel-developer
+      KATA_STATIC_TARBALL_RELEASE_REPO: ${{ github.repository }}
+      KATA_STATIC_TARBALL_URL: ${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_url }}
+      KATA_STATIC_TARBALL_SHA256: ${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Out Asterinas Source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_repository }}
+          ref: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_commit }}
+          path: asterinas-src
+
+      - name: Prepare Local Asterinas Tree
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf "${HOME}/asterinas"
+          mkdir -p "${HOME}/asterinas"
+          rsync -a --delete "${GITHUB_WORKSPACE}/asterinas-src/" "${HOME}/asterinas/"
+
+      - name: Check Host Device Visibility
+        shell: bash
+        run: |
+          set -euxo pipefail
+          ls -l /dev/kvm /dev/vhost-net /dev/vhost-vsock
+          ls -l /dev/vsock || true
+
+      - name: Install pexpect if Needed
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if ! python3 - <<'PY'
+          import importlib.util
+          import sys
+          sys.exit(0 if importlib.util.find_spec("pexpect") else 1)
+          PY
+          then
+            python3 -m pip install --user pexpect
+          fi
+
+      - name: Pull Published Asterinas Builder Image
+        shell: bash
+        run: |
+          set -euxo pipefail
+          docker pull "${{ needs.resolve-asterinas-metadata.outputs.asterinas_builder_image }}"
+
+      - name: Replay Documented Kernel-Developer Flow
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -u tools/kata/interactive_doc_test.py \
+            --scenario kernel-developer \
+            --asterinas-image "${{ needs.resolve-asterinas-metadata.outputs.asterinas_builder_image }}" \
+            --asterinas-dir "${HOME}/asterinas" \
+            --log-dir "${KATA_DOC_LOG_DIR}"
+
+      - name: Upload Kernel-Developer Flow Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asterinas-kata-doc-kernel-developer-logs
+          path: ${{ env.KATA_DOC_LOG_DIR }}
+          if-no-files-found: ignore

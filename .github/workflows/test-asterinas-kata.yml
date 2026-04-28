@@ -1,0 +1,127 @@
+name: Test | Kata with Asterinas as the Guest Kernel
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '10 05 * * *'
+  push:
+    branches:
+      - asterinas
+
+permissions:
+  contents: read
+
+env:
+  KATA_CGROUP_NAMESPACE: host
+  KATA_STATIC_TARBALL_RELEASE_REPO: ${{ github.repository }}
+
+jobs:
+  resolve-asterinas-metadata:
+    name: Load Asterinas Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      asterinas_repository: ${{ steps.resolve.outputs.asterinas_repository }}
+      asterinas_ref: ${{ steps.resolve.outputs.asterinas_ref }}
+      asterinas_commit: ${{ steps.resolve.outputs.asterinas_commit }}
+      asterinas_version: ${{ steps.resolve.outputs.asterinas_version }}
+      docker_image_version: ${{ steps.resolve.outputs.docker_image_version }}
+      asterinas_builder_image: ${{ steps.resolve.outputs.asterinas_builder_image }}
+      asterinas_metadata_source: ${{ steps.resolve.outputs.asterinas_metadata_source }}
+      kata_static_tarball_url: ${{ steps.resolve.outputs.kata_static_tarball_url }}
+      kata_static_tarball_sha256: ${{ steps.resolve.outputs.kata_static_tarball_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load Asterinas Metadata
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KATA_RELEASE_REPOSITORY: ${{ github.repository }}
+          RESOLVED_ASSETS_ENV_FILE: /tmp/asterinas-release-assets.env
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tools/kata/resolve_release_assets.sh
+          . "${RESOLVED_ASSETS_ENV_FILE}"
+          {
+            echo '## Loaded Asterinas metadata'
+            echo
+            echo "- Repository: \`${asterinas_repository}\`"
+            echo "- Ref: \`${asterinas_ref}\`"
+            echo "- Commit: \`${asterinas_commit}\`"
+            echo "- \`VERSION\`: \`${asterinas_version}\`"
+            echo "- \`DOCKER_IMAGE_VERSION\`: \`${docker_image_version}\`"
+            echo "- Base image: \`${asterinas_builder_image}\`"
+            echo "- Metadata source: \`${asterinas_metadata_source}\`"
+            echo "- Kata static tarball: \`${kata_static_tarball_url}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  test-kata:
+    name: Test Kata with Asterinas as the Guest Kernel (${{ matrix.guest_kernel }})
+    needs:
+      - resolve-asterinas-metadata
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        guest_kernel:
+          - linux
+          - asterinas
+    container:
+      image: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_builder_image }}
+      options: &kata_container_options >-
+        --privileged
+        --device /dev/kvm:/dev/kvm
+        --device /dev/vhost-net:/dev/vhost-net
+        --device /dev/vsock:/dev/vsock
+        --cgroupns host
+        --tmpfs /tmp:exec,mode=1777,size=8g
+        --tmpfs /var/lib/containerd:exec,mode=755,size=8g
+    env:
+      KATA_GUEST_KERNEL: ${{ matrix.guest_kernel }}
+      KATA_TEST_IMAGE_LOG_LABEL: base image / guest kernel
+      KATA_TEST_IMAGE_LOG_VALUE: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_builder_image }} / ${{ matrix.guest_kernel }}
+      KATA_STATIC_TARBALL_URL: ${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_url }}
+      KATA_STATIC_TARBALL_SHA256: ${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_sha256 }}
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 90
+    steps:
+      - &checkout_repo
+        uses: actions/checkout@v4
+
+      - &check_disk_space
+        name: Check Disk Space
+        run: |
+          set -euxo pipefail
+          df -h
+          ls -l /dev/kvm /dev/vhost-net /dev/vhost-vsock /dev/vsock || true
+          findmnt -no TARGET,FSTYPE,OPTIONS /tmp
+          findmnt -no TARGET,FSTYPE,OPTIONS /var/lib/containerd
+          stat -f -c '%T %n' /tmp /var/lib/containerd
+          printf '%s: %s\n' "${KATA_TEST_IMAGE_LOG_LABEL}" "${KATA_TEST_IMAGE_LOG_VALUE}"
+
+      - &check_overlayfs
+        name: Check OverlayFS Staging Prerequisites
+        run: |
+          set -euxo pipefail
+          bash tools/kata/check_overlayfs.sh
+
+      - &install_kata_environment
+        name: Install Kata Environment
+        run: |
+          set -euxo pipefail
+          bash tools/kata/kata_env.sh install
+
+      - &run_kata_pass_1
+        name: Run Kata Pass 1
+        run: |
+          set -euxo pipefail
+          bash tools/kata/run_kata.sh pass
+
+      - &run_kata_pass_2
+        name: Run Kata Pass 2
+        run: |
+          set -euxo pipefail
+          bash tools/kata/run_kata.sh pass
