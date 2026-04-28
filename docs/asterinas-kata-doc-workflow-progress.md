@@ -1,0 +1,71 @@
+# Documentation Workflow Progress for Kata with Asterinas as the Guest Kernel
+
+## 2026-04-22 Initial implementation notes
+
+- Requirement focus:
+  - add a new workflow that follows `docs/doc-in-asterinas-repo.md`
+  - keep the overall documented flow, but correct commands that are currently off
+  - test the interactive `docker run -it` and inner `nerdctl run -it` behavior with `pexpect`
+  - mount the local Asterinas tree from `$HOME/asterinas` for the developer flow
+  - use local `asterinas/asterinas` and `asterinas/kata` images first, then wire the same logic into CI
+- Document drift confirmed and corrected in the implementation plan:
+  - `docker run --cgroupns none` is invalid; use `--cgroupns host`
+  - the outer container needs `/dev/vhost-net` and `/dev/vsock` in addition to `/dev/kvm` and `/dev/vhost-vsock`
+  - helper script names are `tools/kata/kata_env.sh` and `tools/kata/kata_services.sh`
+  - the developer flow bind mount should be `-v "${ASTERINAS_SRC}:/root/asterinas"`
+  - the Kata config path should be `/etc/kata-containers/configuration.toml`
+- Added `tools/kata/interactive_doc_test.py`:
+  - uses `pexpect` to drive the documented interactive flow instead of only calling the existing non-interactive smoke helper
+  - covers the end-user scenario on `asterinas/kata`
+  - covers the kernel-developer scenario on `asterinas/asterinas`
+  - validates the local kernel handoff path with `/root/asterinas/target/osdk/aster-kernel-osdk-bin.qemu_elf`
+- Added `.github/workflows/test-asterinas-kata-docs.yml`:
+  - one job replays the documented end-user flow against `asterinas/kata`
+  - one job replays the documented kernel-developer flow against `asterinas/asterinas`
+  - both jobs install `pexpect` only when needed and upload transcripts as artifacts
+- Local environment findings:
+  - `pexpect` is already available in the current local environment
+  - local `asterinas/asterinas:*` and `asterinas/kata:*` images are present
+  - the local Asterinas source tree exists at `/home/jianfeng/asterinas`
+  - the local machine exposes `/dev/kvm`, `/dev/vhost-net`, `/dev/vhost-vsock`, and `/dev/vsock`
+  - local Docker Hub access currently times out during the inner `nerdctl run`
+- Local validation completed so far:
+  - the documented end-user flow passed locally with
+    `python3 tools/kata/interactive_doc_test.py --scenario end-user --workload-image docker.1ms.run/alpine:latest`
+  - this successfully covered the interactive outer `docker run -it`, `tools/kata/kata_services.sh start`, inner `nerdctl run -it`, and post-exit `nerdctl rm foo` sequence
+  - after cleaning the `pexpect` output parsing and passing outer env overrides explicitly, the same end-user replay was run again locally and still passed
+  - per the latest user instruction, the kernel-developer flow does not need to finish locally; CI is now the authoritative validation path for that scenario
+- Local validation policy:
+  - local testing uses `docker.1ms.run/alpine:latest` as the workload image when Docker Hub is unreachable
+  - CI must keep using `docker.io/alpine:latest`
+- CI wiring note:
+  - the kernel-developer workflow path exports `KATA_STATIC_TARBALL_RELEASE_REPO=${GITHUB_REPOSITORY}` so `tools/kata/kata_env.sh install` validates this repository's published Kata release with Asterinas as the guest kernel assets instead of defaulting to upstream `kata-containers/kata-containers`
+  - the first GitHub dispatch attempt exposed a GitHub expression-validation issue: `runner.temp` is not accepted in this workflow's job-level `env`, so the log directory paths were normalized to plain `/tmp/...`
+  - the first push run also showed that `/dev/vsock` is not guaranteed on GitHub-hosted runners, while `/dev/kvm`, `/dev/vhost-net`, and `/dev/vhost-vsock` are present; the workflow and `pexpect` driver now treat `/dev/vsock` as optional instead of mandatory
+  - based on user feedback, the `pexpect` driver now streams child output to stdout and prints explicit phase markers before long-running commands such as `kata_env.sh install`, `nerdctl run`, and `make kernel`
+  - the guest-entry helper now fails fast when `nerdctl run -it ...` falls back to the outer shell instead of opening the inner guest shell, so proxy/image failures no longer look like a generic hang
+  - CI logs showed the real long pole inside `tools/kata/kata_env.sh install`: the static tarball path unpacked into a temporary directory and then copied a second 4.7 GiB tree into `/opt`; this has now been collapsed into a direct `tar --zstd -xf ... -C / opt/kata` install path, with explicit progress messages around the install phases
+  - the next CI log sample exposed a follow-on bug in that optimization: the tarball did not contain a directly addressable `opt/kata` member for selective extraction, so the install now unpacks the verified tarball directly at `/` instead
+  - the latest CI round also exposed an unrelated but real stability issue in `Publish | Kata Image with Asterinas as the Guest Kernel`: the Docker build resolved the latest release URL from inside the container and hit unauthenticated GitHub API rate limits, so the workflows now resolve the tarball URL and SHA256 up front and pass them into the container explicitly
+  - after that pre-resolution change, the next push showed a format mismatch in the release `SHA256SUMS`: the checksum file records the tarball with a full path suffix instead of only the basename, so the workflow-side SHA lookup now accepts either an exact basename match or a trailing `/${asset_name}`
+  - configuration comparison result: before the local-kernel override, both the end-user flow and the kernel-developer flow start Kata from the same default config target, `/opt/kata/share/defaults/kata-containers/configuration.toml -> configuration-asterinas.toml`
+  - on interactive failures, `tools/kata/interactive_doc_test.py` now also dumps `/tmp/kata-console.log`, `/tmp/console.log`, `/tmp/kata-qemu-serial.log`, `/tmp/qemu-serial.log`, `/tmp/containerd.log`, and `/tmp/kata-syslog.log` so QEMU-side failures are visible immediately
+  - to keep the interactive developer replay within the expected post-install budget, the CI job now prebuilds the mounted `$HOME/asterinas` kernel once before invoking the `pexpect` driver; the driver still runs the documented `make kernel BOOT_METHOD=qemu-direct` command inside the container, but that command should now hit an already-built tree and return quickly
+  - a deeper replay hang was then traced to the Python driver itself rather than Kata: `DockerShell.run()` sent the target command, `status=$?`, and the exit-marker `printf` as three separate queued lines, which is fragile for long-running interactive commands. The driver now wraps each command and exit-marker emission into one shell line so it can no longer stall waiting for a marker that was never executed
+  - the newest transcript showed the remaining long pole after `kata_env.sh install`: the interactive `make kernel BOOT_METHOD=qemu-direct` reinitialized `/nix`, cargo, and rustup state inside the developer container. The workflow now prebuilds with shared cache mounts and passes the same cache mounts into the interactive container so the documented in-container `make kernel` can reuse the same build state
+  - the first cache-sharing attempt repeated the earlier workflow-expression mistake by putting `runner.temp` into job-level `env`; the cache directories are now normalized to plain `/tmp/asterinas-kernel-cache/...`
+  - a follow-up CI attempt showed that directly bind-mounting empty cache directories onto `/nix` and `/root/.cargo` hid the builder image's existing tooling (`nix-build`, `/root/.cargo/env`, etc.). The workflow now uses a safer prewarm approach instead: it prebuilds the kernel in a temporary container, commits that container to a local one-off image, and replays the documented interactive developer flow on top of that prewarmed image
+  - the first prewarmed-image replay then exposed one more subtle issue: `docker commit` preserved the prewarm container's running command, so the derived image no longer dropped into an interactive shell by default. The `pexpect` driver now explicitly appends `bash` when starting both the end-user and kernel-developer outer containers
+  - the latest developer replay reached the local-kernel launch stage and then timed out waiting for the guest agent after switching to `/root/asterinas/target/osdk/aster-kernel-osdk-bin.qemu_elf`. That CI path had been building the local kernel from upstream `asterinas/asterinas` `main`, which can drift from the published `asterinas/asterinas:<DOCKER_IMAGE_VERSION>` image and packaged Kata release. The next adjustment is to make the CI checkout use the matching upstream release tag `v${ASTERINAS_VERSION}` so the local source tree aligns with the image/runtime bundle it is being validated against
+  - user review corrected that assumption: the docs workflow should not use upstream `asterinas/asterinas` at all for the developer source tree. To stay aligned with the existing release workflow, it should use `jjf-dev/asterinas` on the `kata-support` branch
+  - user review also requested richer release notes: the Asterinas repo/ref line should include the resolved Asterinas commit id, and the release notes should explicitly name the kata-containers commit id as well
+  - the same release-asset pre-resolution fix also needs to be applied to `.github/workflows/test-asterinas-kata.yml`, because its published-image matrix still calls `tools/kata/kata_env.sh install` with only `KATA_STATIC_TARBALL_RELEASE_REPO`, which reintroduces GitHub API rate-limit failures inside the job container
+  - the latest kernel-developer replay with `jjf-dev/asterinas@kata-support` got through both the packaged-kernel run and the local-kernel run; the remaining failure was only the final cleanup command using a relative `./tools/kata/kata_services.sh stop` after the script had changed directory into `/root/asterinas`. That cleanup path is now switched to the absolute repo path under `/root/kata-containers/tools/kata/kata_services.sh`
+  - per latest review, the CI-only prewarm/prebuild shortcut has been removed from `.github/workflows/test-asterinas-kata-docs.yml` so the kernel-developer path now goes back to launching the documented `asterinas/asterinas` image directly during replay
+  - the image-publishing responsibility is now kept in a single place: `.github/workflows/test-asterinas-kata.yml` no longer builds or pushes `asterinas/kata` for its published-image matrix, and that responsibility stays with `.github/workflows/publish-asterinas-kata-image.yml`
+  - the duplicated Asterinas image / release-asset resolution logic has now been centralized in `tools/kata/resolve_release_assets.sh`, and `test-asterinas-kata.yml`, `test-asterinas-kata-docs.yml`, and `publish-asterinas-kata-image.yml` all call that shared helper instead of carrying near-identical inline shell snippets
+  - after moving the repo to `asterinas/kata-containers`, the shared resolver could no longer use the new repo's `GITHUB_TOKEN` to query `jjf-dev/asterinas` metadata. The resolver now derives `asterinas_builder_image`, `docker_image_version`, and `asterinas_version` from the current repository's latest release manifest instead, so it no longer depends on cross-repository API access
+- Next steps:
+  - run a final quick local end-user replay after the latest script cleanup
+  - static-check the new workflow and script changes
+  - push and wait for CI to verify both documented flows end to end

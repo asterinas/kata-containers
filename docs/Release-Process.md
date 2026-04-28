@@ -50,36 +50,51 @@ action runs.
 > [!NOTE]
 > Admin permission is needed to complete this task.
 
-### Wait for the `VERSION` bump PR payload publish to complete
-
-To reduce the chance of need to re-run the release workflow, check the [CI |
-Publish Kata Containers
-payload](https://github.com/kata-containers/kata-containers/actions/workflows/payload-after-push.yaml)
-once the `VERSION` PR bump has merged to check that the assets build correctly
-and are cached, so that the release process can just download these artifacts
-rather than needing to build them all, which takes time and can reveal errors in
-infra.
-
 ### Check GitHub Actions
 
 We make use of [GitHub actions](https://github.com/features/actions) in the
-[release](https://github.com/kata-containers/kata-containers/actions/workflows/release.yaml)
-file from the `kata-containers/kata-containers` repository to build and upload
-release artifacts.
+[release-asterinas-kata-bundle](https://github.com/kata-containers/kata-containers/actions/workflows/release-asterinas-kata-bundle.yml)
+workflow from the `kata-containers/kata-containers` repository to build and upload
+Asterinas release artifacts.
 
-> [!NOTE]
-> Write permissions to trigger the action.
+The action can be started manually with
+[`workflow_dispatch`](https://docs.github.com/actions/using-workflows/manually-running-a-workflow)
+or automatically by any push. It is responsible for generating or updating an
+Asterinas bundle release (including a release tag when needed) in the
+`kata-containers/kata-containers` repository.
 
-The action is manually triggered and is responsible for generating a new release
-(including a new tag), pushing those to the `kata-containers/kata-containers`
-repository. The new release is initially created as a draft. It is promoted to
-an official release when the whole workflow has completed successfully.
+Manual runs may choose a custom release tag/name and can keep the GitHub release
+as a draft. Push-triggered runs publish a `<VERSION>-<YYYYMMDD>-asterinas`
+release automatically; if that release tag already exists, the workflow skips
+publishing for that duplicate push build.
 
 Check the [actions status
 page](https://github.com/kata-containers/kata-containers/actions) to verify all
 steps in the actions workflow have completed successfully. On success, a static
 tarball containing Kata release artifacts will be uploaded to the [Release
 page](https://github.com/kata-containers/kata-containers/releases).
+
+The Asterinas-flavoured static tarball also carries the Kata helper scripts
+under `/opt/kata/share/kata-containers/tools/kata`, so CI and downstream image
+builds can reuse the same repo-owned helper set that is exercised by the
+`test-asterinas-kata` workflow.
+
+The release workflow packages the regular Asterinas qemu-direct kernel as
+`/opt/kata/share/kata-containers/aster-kernel-osdk-bin.qemu_elf` and the TDX
+kernel as `/opt/kata/share/kata-containers/aster-kernel-osdk-bin-tdx`. The TDX
+kernel source artifact is `asterinas/target/osdk/aster-kernel-osdk-bin` after
+the `INTEL_TDX=1` build.
+
+The [publish-asterinas-kata-image](https://github.com/kata-containers/kata-containers/actions/workflows/publish-asterinas-kata-image.yml)
+workflow builds the matching Docker Hub image. It reads the pinned Asterinas
+source/image metadata from `tools/kata/config/asterinas-metadata.env`, layers the repo-owned
+`tools/kata/` helpers into `/root/asterinas/tools/kata`, runs
+`kata_env.sh install`, and then pushes `asterinas/kata` when Docker
+Hub credentials are available.
+
+Update `tools/kata/config/asterinas-metadata.env` with
+`bash tools/kata/asterinas_metadata.sh update` before rolling the repository
+forward to a newer Asterinas source/image pairing.
 
 If the workflow fails because of some external environmental causes, e.g.
 network timeout, simply re-run the failed jobs until they eventually succeed.
