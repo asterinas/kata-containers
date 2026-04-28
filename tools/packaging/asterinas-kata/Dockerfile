@@ -9,6 +9,14 @@ ARG ASTERINAS_DOCKER_IMAGE_VERSION=
 
 WORKDIR /root/asterinas
 
+RUN sed -i '/^export ASTER_SCML=.*linux-compatibility/d' /root/.bashrc && \
+    printf '%s\n' \
+    'if [ -d /root/asterinas/book/src/kernel/linux-compatibility ]; then' \
+    '    export ASTER_SCML="$(find /root/asterinas/book/src/kernel/linux-compatibility/ -name "*.scml")"' \
+    'else' \
+    '    export ASTER_SCML=""' \
+    'fi' >> /root/.bashrc
+
 COPY tools/kata /root/asterinas/tools/kata
 
 RUN KATA_STATIC_TARBALL_RELEASE_REPO="${KATA_STATIC_TARBALL_RELEASE_REPO}" \

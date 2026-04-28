@@ -209,11 +209,17 @@ install_repo_configs() {
   sed "s|__PAUSE_IMAGE__|${PAUSE_IMAGE}|g" "${config_dir}/containerd-config.toml.in" > /etc/containerd/config.toml
 }
 
+run_optional_host_prerequisite() {
+  "$@" >/dev/null 2>&1 || true
+}
+
 prepare_host_prerequisites() {
-  modprobe overlay || true
-  modprobe br_netfilter || true
-  sysctl -w net.ipv4.ip_forward=1 || true
-  sysctl -w net.bridge.bridge-nf-call-iptables=1 || true
+  run_optional_host_prerequisite modprobe overlay
+  run_optional_host_prerequisite modprobe br_netfilter
+  run_optional_host_prerequisite sysctl -w net.ipv4.ip_forward=1
+  if [ -e /proc/sys/net/bridge/bridge-nf-call-iptables ]; then
+    run_optional_host_prerequisite sysctl -w net.bridge.bridge-nf-call-iptables=1
+  fi
   iptables -P FORWARD ACCEPT
 }
 
