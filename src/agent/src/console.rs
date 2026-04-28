@@ -16,7 +16,6 @@ use nix::unistd::{self, close, dup2, fork, setsid, ForkResult, Pid};
 use rustjail::pipestream::PipeStream;
 use slog::Logger;
 use std::ffi::CString;
-use std::io;
 use std::os::unix::io::{FromRawFd, RawFd};
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -24,7 +23,7 @@ use std::sync::Arc;
 use std::sync::Mutex as SyncMutex;
 
 use futures::StreamExt;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::select;
 use tokio::sync::watch::Receiver;
 
@@ -133,28 +132,7 @@ pub async fn debug_console_handler(
 
 fn run_in_child(slave_fd: libc::c_int, shell: String) -> Result<()> {
     // create new session with child as session leader
-    let current_pid = unistd::getpid();
-    println!(
-        "setsid 1 before pid={} pgid(0)={} pgid({})={} sid({})={}",
-        current_pid.as_raw(),
-        unsafe { libc::getpgid(0) },
-        current_pid.as_raw(),
-        unsafe { libc::getpgid(current_pid.as_raw()) },
-        current_pid.as_raw(),
-        unsafe { libc::getsid(current_pid.as_raw()) }
-    );
     setsid()?;
-
-    let current_pid = unistd::getpid();
-    println!(
-        "setsid 1 after pid={} pgid(0)={} pgid({})={} sid({})={}",
-        current_pid.as_raw(),
-        unsafe { libc::getpgid(0) },
-        current_pid.as_raw(),
-        unsafe { libc::getpgid(current_pid.as_raw()) },
-        current_pid.as_raw(),
-        unsafe { libc::getsid(current_pid.as_raw()) }
-    );
 
     // dup stdin, stdout, stderr to let child act as a terminal
     dup2(slave_fd, STDIN_FILENO)?;
@@ -193,47 +171,13 @@ async fn run_in_parent<T: AsyncRead + AsyncWrite>(
     let (mut master_reader, mut master_writer) = tokio::io::split(PipeStream::from_fd(master_fd));
 
     select! {
-        res = async {
-            let mut total = 0u64;
-            let mut buf = [0u8; 8192];
-            loop {
-                let bytes = master_reader.read(&mut buf).await?;
-                if bytes == 0 {
-                    return Ok::<u64, io::Error>(total);
-                }
-                println!(
-                    "vsock send debug-console bytes={} text={:?} raw={:?}",
-                    bytes,
-                    String::from_utf8_lossy(&buf[..bytes]),
-                    &buf[..bytes]
-                );
-                socket_writer.write_all(&buf[..bytes]).await?;
-                total += bytes as u64;
-            }
-        } => {
+        res = tokio::io::copy(&mut master_reader, &mut socket_writer) => {
             debug!(
                 logger,
                 "master closed: {:?}", res
             );
         }
-        res = async {
-            let mut total = 0u64;
-            let mut buf = [0u8; 8192];
-            loop {
-                let bytes = socket_reader.read(&mut buf).await?;
-                if bytes == 0 {
-                    return Ok::<u64, io::Error>(total);
-                }
-                println!(
-                    "vsock recv debug-console bytes={} text={:?} raw={:?}",
-                    bytes,
-                    String::from_utf8_lossy(&buf[..bytes]),
-                    &buf[..bytes]
-                );
-                master_writer.write_all(&buf[..bytes]).await?;
-                total += bytes as u64;
-            }
-        } => {
+        res = tokio::io::copy(&mut socket_reader, &mut master_writer) => {
             // the shell run in child may not be exited, in some scenes
             // eg. directly Ctrl-C in the host to terminate the kata-runtime process
             // that will block this task，while waiting for the child to exit.

@@ -250,7 +250,7 @@ func TestAppendLegacySerial(t *testing.T) {
 	testAppend(sdev, deviceLegacySerialString, t)
 }
 
-var deviceLegacySerialPortString = "-chardev file,id=char0,path=/tmp/serial.log -serial file:/tmp/qemu-serial.log"
+var deviceLegacySerialPortString = "-chardev file,id=char0,path=/tmp/serial.log"
 
 func TestAppendDeviceLegacySerialPort(t *testing.T) {
 	chardev := CharDevice{
@@ -277,7 +277,7 @@ func TestAppendDeviceSerial(t *testing.T) {
 	testAppend(sdev, deviceSerialString, t)
 }
 
-var deviceSerialPortString = "-device virtserialport,chardev=char0,id=channel0,name=channel.0 -chardev socket,id=char0,path=/tmp/char.sock,server=on,wait=off,logfile=/tmp/console.log -serial file:/tmp/qemu-serial.log"
+var deviceSerialPortString = "-device virtserialport,chardev=char0,id=channel0,name=channel.0 -chardev socket,id=char0,path=/tmp/char.sock,server=on,wait=off"
 
 func TestAppendDeviceSerialPort(t *testing.T) {
 	chardev := CharDevice{

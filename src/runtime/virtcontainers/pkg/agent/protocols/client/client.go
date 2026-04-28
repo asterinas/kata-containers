@@ -9,7 +9,6 @@ package client
 import (
 	"bufio"
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -63,12 +62,6 @@ type AgentClient struct {
 }
 
 type dialer func(string, time.Duration) (net.Conn, error)
-
-type vsockLoggingConn struct {
-	net.Conn
-	connType string
-	target   string
-}
 
 // NewAgentClient creates a new agent gRPC client and handles both unix and vsock addresses.
 //
@@ -201,71 +194,6 @@ func setRequest(req *ttrpc.Request, md *ttrpc.MD) {
 			})
 		}
 	}
-}
-
-func newVsockLoggingConn(conn net.Conn, connType, target string) net.Conn {
-	if conn == nil {
-		return nil
-	}
-
-	return &vsockLoggingConn{
-		Conn:     conn,
-		connType: connType,
-		target:   target,
-	}
-}
-
-func (c *vsockLoggingConn) Read(b []byte) (int, error) {
-	n, err := c.Conn.Read(b)
-	logVsockPayload("recv", c.connType, c.target, b[:n], err)
-	return n, err
-}
-
-func (c *vsockLoggingConn) Write(b []byte) (int, error) {
-	n, err := c.Conn.Write(b)
-	logVsockPayload("send", c.connType, c.target, b[:n], err)
-	return n, err
-}
-
-func logVsockPayload(direction, connType, target string, payload []byte, err error) {
-	if len(payload) == 0 && err == nil {
-		return
-	}
-
-	fields := logrus.Fields{
-		"direction": direction,
-		"type":      connType,
-		"target":    target,
-		"len":       len(payload),
-	}
-
-	if len(payload) > 0 {
-		fields["data"] = strconv.QuoteToASCII(string(payload))
-		fields["hex"] = hex.EncodeToString(payload)
-	}
-
-	entry := agentClientLog.WithFields(fields)
-	if err != nil {
-		entry = entry.WithError(err)
-	}
-
-	record := TraceRecord{
-		Layer:     "transport",
-		Direction: direction,
-		Type:      connType,
-		Target:    target,
-		Length:    len(payload),
-	}
-	if len(payload) > 0 {
-		record.Data = strconv.QuoteToASCII(string(payload))
-		record.Hex = hex.EncodeToString(payload)
-	}
-	if err != nil {
-		record.Error = err.Error()
-	}
-	WriteTraceRecord(record)
-
-	entry.Info("vsock payload")
 }
 
 // vsock scheme is self-defined to be kept from being parsed by grpc.
@@ -451,12 +379,7 @@ func VsockDialer(sock string, timeout time.Duration) (net.Conn, error) {
 	}
 
 	dialFunc := func() (net.Conn, error) {
-		conn, err := vsock.Dial(cid, port, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		return newVsockLoggingConn(conn, VSockSocketScheme, fmt.Sprintf("%d:%d", cid, port)), nil
+		return vsock.Dial(cid, port, nil)
 	}
 
 	timeoutErr := grpcStatus.Errorf(codes.DeadlineExceeded, "timed out connecting to vsock %d:%d", cid, port)
@@ -478,17 +401,15 @@ func HybridVSockDialer(sock string, timeout time.Duration) (net.Conn, error) {
 			return nil, err
 		}
 
-		targetPort := port
-		if targetPort == 0 {
+		if port == 0 {
 			// use the port read at parse()
-			targetPort = hybridVSockPort
+			port = hybridVSockPort
 		}
-		conn = newVsockLoggingConn(conn, HybridVSockScheme, fmt.Sprintf("%s:%d", udsPath, targetPort))
 
 		// Once the connection is opened, the following command MUST BE sent,
 		// the hypervisor needs to know the port number where the agent is listening in order to
 		// create the connection
-		if _, err = fmt.Fprintf(conn, "CONNECT %d\n", targetPort); err != nil {
+		if _, err = fmt.Fprintf(conn, "CONNECT %d\n", port); err != nil {
 			conn.Close()
 			return nil, err
 		}
@@ -571,12 +492,7 @@ func MockHybridVSockDialer(sock string, timeout time.Duration) (net.Conn, error)
 	sock = strings.TrimPrefix(sock, "mock:")
 
 	dialFunc := func() (net.Conn, error) {
-		conn, err := net.DialTimeout("unix", sock, timeout)
-		if err != nil {
-			return nil, err
-		}
-
-		return newVsockLoggingConn(conn, MockHybridVSockScheme, sock), nil
+		return net.DialTimeout("unix", sock, timeout)
 	}
 
 	timeoutErr := grpcStatus.Errorf(codes.DeadlineExceeded, "timed out connecting to mock hybrid vsocket %s", sock)
