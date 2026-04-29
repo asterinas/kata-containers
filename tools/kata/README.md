@@ -89,12 +89,12 @@ Kata helpers live here.
   publishing, and documentation replay all start from the same push so
   independent work can run in parallel.
 - Consumers of release artifacts use readiness checks instead of a global
-  workflow dependency. On push events, `resolve_release_assets.sh` can wait for
-  the latest Asterinas Kata release to advertise the current `github.sha` in its
-  release notes before returning the static tarball URL. This makes tests and
-  image publishing wait only when they need a newly produced tarball; scheduled
-  and manual runs without that expected commit keep using the latest available
-  release immediately.
+  workflow dependency. On push events, jobs that need the current Asterinas Kata
+  tarball set `KATA_STATIC_TARBALL_EXPECTED_KATA_COMMIT`; `kata_env.sh` and
+  `resolve_release_assets.sh` then wait for the latest release notes to
+  advertise that commit before using the tarball. Jobs without that expected
+  commit, such as the Linux guest smoke-test matrix member, keep using the
+  latest available release immediately.
 - The published-image documentation flow uses the same pattern for Docker Hub:
   it pulls `asterinas/kata:<DOCKER_IMAGE_VERSION>` and validates the image
   layout before replaying the end-user flow. If the tag still points at an older

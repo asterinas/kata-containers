@@ -112,6 +112,7 @@ def outer_docker_env_args() -> list[str]:
         "KATA_FORCE_APT",
         "KATA_PAYLOAD_IMAGE",
         "KATA_STATIC_TARBALL_RELEASE_REPO",
+        "KATA_STATIC_TARBALL_EXPECTED_KATA_COMMIT",
         "KATA_STATIC_TARBALL_SHA256",
         "KATA_STATIC_TARBALL_SHA256_URL",
         "KATA_STATIC_TARBALL_URL",

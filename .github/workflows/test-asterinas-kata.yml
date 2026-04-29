@@ -37,7 +37,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           KATA_RELEASE_REPOSITORY: ${{ github.repository }}
-          KATA_STATIC_TARBALL_EXPECTED_KATA_COMMIT: ${{ github.event_name == 'push' && github.sha || '' }}
           RESOLVED_ASSETS_ENV_FILE: /tmp/asterinas-release-assets.env
         shell: bash
         run: |
@@ -82,8 +81,7 @@ jobs:
       KATA_GUEST_KERNEL: ${{ matrix.guest_kernel }}
       KATA_TEST_IMAGE_LOG_LABEL: base image / guest kernel
       KATA_TEST_IMAGE_LOG_VALUE: ${{ needs.resolve-asterinas-metadata.outputs.asterinas_builder_image }} / ${{ matrix.guest_kernel }}
-      KATA_STATIC_TARBALL_URL: ${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_url }}
-      KATA_STATIC_TARBALL_SHA256: ${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_sha256 }}
+      KATA_STATIC_TARBALL_EXPECTED_KATA_COMMIT: ${{ matrix.guest_kernel == 'asterinas' && github.event_name == 'push' && github.sha || '' }}
     defaults:
       run:
         shell: bash

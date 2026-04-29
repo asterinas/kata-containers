@@ -95,9 +95,10 @@ Hub credentials are available.
 
 The Asterinas CI workflows use consumer-side readiness gates instead of a
 strict workflow chain. Release packaging can update the same dated release tag
-for a later push. Jobs that need the Asterinas Kata static tarball set the
-expected kata-containers commit and wait until the latest release notes contain
-that commit before resolving the tarball URL. The end-user documentation replay
+for a later push. Jobs that need the Asterinas Kata static tarball set
+`KATA_STATIC_TARBALL_EXPECTED_KATA_COMMIT`; `kata_env.sh` and
+`resolve_release_assets.sh` then wait until the latest release notes contain
+that commit before using the tarball. The end-user documentation replay
 similarly waits until the Docker Hub `asterinas/kata:<DOCKER_IMAGE_VERSION>` tag
 has the expected `/root/kata-containers` helper layout. This keeps independent
 checks parallel while preventing consumers from using stale release or image

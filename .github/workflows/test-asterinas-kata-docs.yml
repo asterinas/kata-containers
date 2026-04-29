@@ -33,7 +33,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           KATA_RELEASE_REPOSITORY: ${{ github.repository }}
-          KATA_STATIC_TARBALL_EXPECTED_KATA_COMMIT: ${{ github.event_name == 'push' && github.sha || '' }}
           RESOLVED_ASSETS_ENV_FILE: /tmp/asterinas-release-assets.env
         shell: bash
         run: |
@@ -90,7 +89,16 @@ jobs:
           set -euxo pipefail
           image="asterinas/kata:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}"
           for attempt in $(seq 1 30); do
-            docker pull "${image}"
+            if ! docker pull "${image}"; then
+              if [ "${attempt}" -eq 30 ]; then
+                exit 1
+              fi
+
+              echo "Published image is not pullable yet; retrying (${attempt}/30)."
+              sleep 60
+              continue
+            fi
+
             if docker run --rm "${image}" bash -lc '
               test "$(pwd)" = /root/kata-containers
               test -x /root/kata-containers/tools/kata/kata_services.sh
@@ -137,8 +145,7 @@ jobs:
     env:
       KATA_DOC_LOG_DIR: /tmp/asterinas-kata-doc-logs/kernel-developer
       KATA_STATIC_TARBALL_RELEASE_REPO: ${{ github.repository }}
-      KATA_STATIC_TARBALL_URL: ${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_url }}
-      KATA_STATIC_TARBALL_SHA256: ${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_sha256 }}
+      KATA_STATIC_TARBALL_EXPECTED_KATA_COMMIT: ${{ github.event_name == 'push' && github.sha || '' }}
     steps:
       - uses: actions/checkout@v4
 

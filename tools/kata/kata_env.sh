@@ -113,6 +113,9 @@ derive_static_tarball_sha256_url() {
 resolve_static_tarball_url() {
   release_json_download_path="${KATA_STATIC_RELEASE_JSON_DOWNLOAD_PATH:-/tmp/kata-static-release.$$}.json"
   release_repo="${KATA_STATIC_TARBALL_RELEASE_REPO:-}"
+  expected_kata_commit="${KATA_STATIC_TARBALL_EXPECTED_KATA_COMMIT:-}"
+  release_wait_attempts="${KATA_STATIC_TARBALL_RELEASE_WAIT_ATTEMPTS:-60}"
+  release_wait_interval="${KATA_STATIC_TARBALL_RELEASE_WAIT_INTERVAL:-30}"
 
   if [ -n "${KATA_STATIC_TARBALL_URL:-}" ]; then
     printf '%s\n' "${KATA_STATIC_TARBALL_URL}"
@@ -129,7 +132,24 @@ resolve_static_tarball_url() {
     return 1
   fi
 
-  download_release_asset "${release_json_download_path}" "https://api.github.com/repos/${release_repo}/releases/latest"
+  for attempt in $(seq 1 "${release_wait_attempts}"); do
+    rm -f "${release_json_download_path}"
+    download_release_asset "${release_json_download_path}" "https://api.github.com/repos/${release_repo}/releases/latest"
+
+    if [ -z "${expected_kata_commit}" ] ||
+      jq -e --arg commit "${expected_kata_commit}" '(.body // "") | contains("kata-containers commit: `" + $commit + "`")' "${release_json_download_path}" >/dev/null; then
+      break
+    fi
+
+    if [ "${attempt}" -eq "${release_wait_attempts}" ]; then
+      echo "Latest Kata release in ${release_repo} does not contain kata-containers commit ${expected_kata_commit}" >&2
+      return 1
+    fi
+
+    echo "Latest Kata release is not for kata-containers commit ${expected_kata_commit}; retrying (${attempt}/${release_wait_attempts})..." >&2
+    sleep "${release_wait_interval}"
+  done
+
   resolved_url="$(
     jq -r '
       .assets[]
