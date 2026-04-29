@@ -28,7 +28,8 @@ Kata helpers live here.
 - Refresh that metadata with `bash tools/kata/asterinas_metadata.sh update`.
 - Load that metadata with `bash tools/kata/asterinas_metadata.sh load`.
 - By default, `bash tools/kata/kata_env.sh install` resolves the latest
-  Kata static tarball with Asterinas as the guest kernel from `kata-containers/kata-containers`.
+  Kata static tarball with Asterinas as the guest kernel from
+  `asterinas/kata-containers`.
 - Repository workflows override `KATA_STATIC_TARBALL_RELEASE_REPO` to the
   current GitHub repository so pull requests in a fork can validate that
   repository's latest Kata release with Asterinas as the guest kernel assets.
