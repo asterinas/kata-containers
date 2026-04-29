@@ -51,36 +51,55 @@ EOF
 }
 
 download_release_asset_once() {
-  output_path="$1"
-  download_url="$2"
+  local output_path="$1"
+  local download_url="$2"
+  local tool_attempts="${KATA_DOWNLOAD_TOOL_ATTEMPTS:-3}"
+  local tool_retry_sleep="${KATA_DOWNLOAD_TOOL_RETRY_SLEEP:-2}"
+  local -a curl_args
+  local -a wget_args
 
-  if command -v wget >/dev/null 2>&1; then
+  if command -v curl >/dev/null 2>&1; then
+    curl_args=(
+      --fail
+      --location
+      --retry "${tool_attempts}"
+      --retry-all-errors
+      --retry-delay "${tool_retry_sleep}"
+      --silent
+      --show-error
+      --output "${output_path}"
+    )
     if [ -f "${output_path}" ]; then
-      wget --continue --tries=1 --output-document "${output_path}" "${download_url}"
-      return
+      curl_args=(--continue-at - "${curl_args[@]}")
     fi
 
-    wget --tries=1 --output-document "${output_path}" "${download_url}"
+    curl "${curl_args[@]}" "${download_url}"
     return
   fi
 
+  if ! command -v wget >/dev/null 2>&1; then
+    echo "Cannot download ${download_url}: neither curl nor wget is installed." >&2
+    return 1
+  fi
+
+  wget_args=(
+    --tries="${tool_attempts}"
+    --waitretry="${tool_retry_sleep}"
+    --retry-connrefused
+    --output-document "${output_path}"
+  )
   if [ -f "${output_path}" ]; then
-    curl --continue-at - --fail --location --retry 5 --retry-all-errors --silent --show-error \
-      --output "${output_path}" \
-      "${download_url}"
-    return
+    wget_args=(--continue "${wget_args[@]}")
   fi
 
-  curl --fail --location --retry 5 --retry-all-errors --silent --show-error \
-    --output "${output_path}" \
-    "${download_url}"
+  wget "${wget_args[@]}" "${download_url}"
 }
 
 download_release_asset() {
   output_path="$1"
   download_url="$2"
-  max_attempts="${KATA_DOWNLOAD_ATTEMPTS:-5}"
-  retry_sleep="${KATA_DOWNLOAD_RETRY_SLEEP:-10}"
+  max_attempts="${KATA_DOWNLOAD_ATTEMPTS:-8}"
+  retry_sleep="${KATA_DOWNLOAD_RETRY_SLEEP:-15}"
 
   for attempt in $(seq 1 "${max_attempts}"); do
     if download_release_asset_once "${output_path}" "${download_url}"; then
