@@ -64,26 +64,36 @@ if [ -z "${kata_static_tarball_url}" ]; then
     rm -f "${release_json_download_path}"
     download_latest_release_json "${kata_release_repository}" "${release_json_download_path}" 5 10
 
-    if [ -z "${kata_expected_commit}" ] ||
-      jq -e --arg commit "${kata_expected_commit}" '(.body // "") | contains("kata-containers commit: `" + $commit + "`")' "${release_json_download_path}" >/dev/null; then
+    if [ -n "${kata_expected_commit}" ] &&
+      ! jq -e --arg commit "${kata_expected_commit}" '(.body // "") | contains("kata-containers commit: `" + $commit + "`")' "${release_json_download_path}" >/dev/null; then
+      if [ "${attempt}" -eq "${kata_release_wait_attempts}" ]; then
+        die "Latest Kata release in ${kata_release_repository} does not contain kata-containers commit ${kata_expected_commit}"
+      fi
+
+      echo "Latest Kata release is not for kata-containers commit ${kata_expected_commit}; retrying (${attempt}/${kata_release_wait_attempts})..." >&2
+      sleep "${kata_release_wait_interval}"
+      continue
+    fi
+
+    kata_static_tarball_url="$(
+      jq -r '
+        .assets[]
+        | select(.name | test("^kata-static-.*-asterinas-amd64\\.tar\\.zst$"))
+        | .browser_download_url
+      ' "${release_json_download_path}" | head -n 1
+    )"
+
+    if [ -n "${kata_static_tarball_url}" ] && [ "${kata_static_tarball_url}" != "null" ]; then
       break
     fi
 
     if [ "${attempt}" -eq "${kata_release_wait_attempts}" ]; then
-      die "Latest Kata release in ${kata_release_repository} does not contain kata-containers commit ${kata_expected_commit}"
+      die "Failed to resolve Kata static tarball URL from ${kata_release_repository}"
     fi
 
-    echo "Latest Kata release is not for kata-containers commit ${kata_expected_commit}; retrying (${attempt}/${kata_release_wait_attempts})..." >&2
+    echo "Latest Kata release in ${kata_release_repository} does not have the Asterinas static tarball asset yet; retrying (${attempt}/${kata_release_wait_attempts})..." >&2
     sleep "${kata_release_wait_interval}"
   done
-
-  kata_static_tarball_url="$(
-    jq -r '
-      .assets[]
-      | select(.name | test("^kata-static-.*-asterinas-amd64\\.tar\\.zst$"))
-      | .browser_download_url
-    ' "${release_json_download_path}" | head -n 1
-  )"
 fi
 
 [ -n "${asterinas_version}" ] || die "Failed to resolve Asterinas VERSION"

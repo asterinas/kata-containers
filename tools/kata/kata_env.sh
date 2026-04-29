@@ -144,36 +144,41 @@ resolve_static_tarball_url() {
     rm -f "${release_json_download_path}"
     download_release_asset "${release_json_download_path}" "https://api.github.com/repos/${release_repo}/releases/latest"
 
-    if [ -z "${expected_kata_commit}" ] ||
-      jq -e --arg commit "${expected_kata_commit}" '(.body // "") | contains("kata-containers commit: `" + $commit + "`")' "${release_json_download_path}" >/dev/null; then
-      break
+    if [ -n "${expected_kata_commit}" ] &&
+      ! jq -e --arg commit "${expected_kata_commit}" '(.body // "") | contains("kata-containers commit: `" + $commit + "`")' "${release_json_download_path}" >/dev/null; then
+      if [ "${attempt}" -eq "${release_wait_attempts}" ]; then
+        echo "Latest Kata release in ${release_repo} does not contain kata-containers commit ${expected_kata_commit}" >&2
+        return 1
+      fi
+
+      echo "Latest Kata release is not for kata-containers commit ${expected_kata_commit}; retrying (${attempt}/${release_wait_attempts})..." >&2
+      sleep "${release_wait_interval}"
+      continue
+    fi
+
+    resolved_url="$(
+      jq -r '
+        .assets[]
+        | select(.name | test("^kata-static-.*-asterinas-amd64\\.tar\\.zst$"))
+        | .browser_download_url
+      ' "${release_json_download_path}" | head -n 1
+    )"
+
+    if [ -n "${resolved_url}" ] && [ "${resolved_url}" != "null" ]; then
+      KATA_STATIC_TARBALL_RESOLVED_URL="${resolved_url}"
+      export KATA_STATIC_TARBALL_RESOLVED_URL
+      printf '%s\n' "${resolved_url}"
+      return 0
     fi
 
     if [ "${attempt}" -eq "${release_wait_attempts}" ]; then
-      echo "Latest Kata release in ${release_repo} does not contain kata-containers commit ${expected_kata_commit}" >&2
+      echo "Cannot resolve latest Kata tarball with Asterinas as the guest kernel from ${release_repo}." >&2
       return 1
     fi
 
-    echo "Latest Kata release is not for kata-containers commit ${expected_kata_commit}; retrying (${attempt}/${release_wait_attempts})..." >&2
+    echo "Latest Kata release in ${release_repo} does not have the Asterinas static tarball asset yet; retrying (${attempt}/${release_wait_attempts})..." >&2
     sleep "${release_wait_interval}"
   done
-
-  resolved_url="$(
-    jq -r '
-      .assets[]
-      | select(.name | test("^kata-static-.*-asterinas-amd64\\.tar\\.zst$"))
-      | .browser_download_url
-    ' "${release_json_download_path}" | head -n 1
-  )"
-
-  if [ -z "${resolved_url}" ] || [ "${resolved_url}" = "null" ]; then
-    echo "Cannot resolve latest Kata tarball with Asterinas as the guest kernel from ${release_repo}." >&2
-    return 1
-  fi
-
-  KATA_STATIC_TARBALL_RESOLVED_URL="${resolved_url}"
-  export KATA_STATIC_TARBALL_RESOLVED_URL
-  printf '%s\n' "${resolved_url}"
 }
 
 resolve_static_tarball_sha256() {
