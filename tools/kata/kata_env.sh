@@ -5,16 +5,20 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=tools/kata/common.sh
 source "${script_dir}/common.sh"
+# shellcheck source=tools/kata/kata_config.sh
+source "${script_dir}/kata_config.sh"
 
 show_help() {
   cat <<'EOF'
-Usage: bash tools/kata/kata_env.sh <install|check>
+Usage:
+  bash tools/kata/kata_env.sh install [--kernel <path>]
+  bash tools/kata/kata_env.sh check
 
 Manages the Kata environment lifecycle used by the smoke-test helpers.
 
 Commands:
-  install  Installs the distro packages and userspace binaries required by the
-           Kata smoke-test helpers.
+  install  Installs the distro packages, userspace binaries, and repo-owned
+           config files required by the Kata smoke-test helpers.
   check    Verifies that the background Kata and `containerd` services are
            ready before running the configured workload.
 
@@ -29,8 +33,12 @@ Environment:
                                 apt-get install`.
   KATA_PAYLOAD_IMAGE            Kata payload image. Default:
                                 quay.io/kata-containers/kata-deploy:${KATA_VERSION}.
-  KATA_ASTERINAS_KERNEL_PATH    Optional local `aster-kernel-osdk-bin.qemu_elf`
-                                path used to overlay the Kata install.
+  KATA_GUEST_KERNEL             Optional guest kernel selector: `linux`,
+                                `asterinas`, or empty to use the installed
+                                Kata default.
+  --kernel <path>               Optional install-time override for the
+                                `kernel` path written to
+                                /etc/kata-containers/configuration.toml.
   KATA_STATIC_TARBALL_URL       Optional Kata static tarball URL.
   KATA_STATIC_TARBALL_SHA256_URL
                                 Optional checksum URL for the static tarball.
@@ -276,22 +284,10 @@ should_install_crictl() {
 
 need_kata_install() {
   source_marker_path="${KATA_INSTALL_SOURCE_MARKER:-/opt/kata/.kata-install-source}"
-  asterinas_kernel_path="${KATA_ASTERINAS_KERNEL_PATH:-}"
 
   if [ ! -x /opt/kata/bin/kata-runtime ] ||
     [ ! -x /opt/kata/bin/containerd-shim-kata-v2 ] ||
     ! /opt/kata/bin/kata-runtime --version 2>/dev/null | grep -F "${KATA_VERSION}" >/dev/null; then
-    return 0
-  fi
-
-  if [ -n "${asterinas_kernel_path}" ] && [ -f "${asterinas_kernel_path}" ]; then
-    [ ! -f "${source_marker_path}" ] ||
-      ! grep -Fqx "asterinas-kernel-overlay ${asterinas_kernel_path}" "${source_marker_path}"
-    return
-  fi
-
-  if [ -f "${source_marker_path}" ] &&
-    grep -Fq "asterinas-kernel-overlay " "${source_marker_path}"; then
     return 0
   fi
 
@@ -487,56 +483,6 @@ install_kata_from_static_tarball() {
   echo "Installed Kata static tarball into /opt/kata"
 }
 
-patch_qemu_config_for_asterinas() {
-  source_config="$1"
-  dest_config="$2"
-
-  cp "${source_config}" "${dest_config}"
-  sed -i \
-    -e 's#^kernel = ".*"#kernel = "/opt/kata/share/kata-containers/aster-kernel-osdk-bin.qemu_elf"#' \
-    -e 's#^image = ".*"#initrd = "/opt/kata/share/kata-containers/kata-containers-initrd.img"#' \
-    -e 's#^initrd = ".*"#initrd = "/opt/kata/share/kata-containers/kata-containers-initrd.img"#' \
-    "${dest_config}"
-}
-
-install_kata_from_asterinas_kernel_overlay() {
-  source_marker_path="${KATA_INSTALL_SOURCE_MARKER:-/opt/kata/.kata-install-source}"
-  asterinas_kernel_path="${KATA_ASTERINAS_KERNEL_PATH:?KATA_ASTERINAS_KERNEL_PATH must be set}"
-  share_dir=/opt/kata/share/kata-containers
-  defaults_dir=/opt/kata/share/defaults/kata-containers
-  runtime_rs_defaults_dir="${defaults_dir}/runtime-rs"
-  payload_image="${KATA_PAYLOAD_IMAGE:-quay.io/kata-containers/kata-deploy:${KATA_VERSION}}"
-
-  if [ ! -x /opt/kata/bin/kata-runtime ] ||
-    [ ! -x /opt/kata/bin/containerd-shim-kata-v2 ] ||
-    ! /opt/kata/bin/kata-runtime --version 2>/dev/null | grep -F "${KATA_VERSION}" >/dev/null; then
-    install_kata_from_payload_image
-  fi
-
-  test -f "${asterinas_kernel_path}"
-  test -d "${share_dir}"
-  test -d "${defaults_dir}"
-
-  install -m 0755 "${asterinas_kernel_path}" "${share_dir}/aster-kernel-osdk-bin.qemu_elf"
-  ln -sfn "aster-kernel-osdk-bin.qemu_elf" "${share_dir}/vmlinuz.container"
-  ln -sfn "aster-kernel-osdk-bin.qemu_elf" "${share_dir}/vmlinux.container"
-
-  patch_qemu_config_for_asterinas \
-    "${defaults_dir}/configuration-qemu.toml" \
-    "${defaults_dir}/configuration-asterinas.toml"
-  ln -sfn "configuration-asterinas.toml" "${defaults_dir}/configuration.toml"
-
-  if [ -f "${runtime_rs_defaults_dir}/configuration-qemu-runtime-rs.toml" ]; then
-    patch_qemu_config_for_asterinas \
-      "${runtime_rs_defaults_dir}/configuration-qemu-runtime-rs.toml" \
-      "${runtime_rs_defaults_dir}/configuration-asterinas-runtime-rs.toml"
-    ln -sfn "configuration-asterinas-runtime-rs.toml" "${runtime_rs_defaults_dir}/configuration.toml"
-  fi
-
-  printf 'asterinas-kernel-overlay %s\n' "${asterinas_kernel_path}" > "${source_marker_path}"
-  printf 'payload-image %s\n' "${payload_image}" >> "${source_marker_path}"
-}
-
 should_print_kata_check_output() {
   case "${KATA_CHECK_DEBUG:-0}" in
     1 | true | TRUE | yes | YES)
@@ -582,6 +528,8 @@ wait_for_containerd_ready() {
 }
 
 run_install_task() {
+  local kernel_path="${1:-}"
+
   echo "Installing required distro packages"
   install_required_packages
 
@@ -602,10 +550,7 @@ run_install_task() {
   fi
 
   if need_kata_install; then
-    if [ -n "${KATA_ASTERINAS_KERNEL_PATH:-}" ] && [ -f "${KATA_ASTERINAS_KERNEL_PATH}" ]; then
-      echo "Installing Kata with local Asterinas kernel overlay"
-      install_kata_from_asterinas_kernel_overlay
-    elif [ -n "${KATA_STATIC_TARBALL_URL:-}" ] || [ -n "${KATA_STATIC_TARBALL_RELEASE_REPO:-}" ]; then
+    if [ -n "${KATA_STATIC_TARBALL_URL:-}" ] || [ -n "${KATA_STATIC_TARBALL_RELEASE_REPO:-}" ]; then
       echo "Installing Kata from static tarball"
       install_kata_from_static_tarball
     else
@@ -617,6 +562,8 @@ run_install_task() {
   install -d -m 0755 /usr/local/bin
   ln -sf /opt/kata/bin/kata-runtime /usr/local/bin/kata-runtime
   ln -sf /opt/kata/bin/containerd-shim-kata-v2 /usr/local/bin/containerd-shim-kata-v2
+  echo "Installing repo-owned Kata and containerd configs"
+  kata_install_repo_configs "${kernel_path}"
   echo "Kata install task completed"
 }
 
@@ -669,6 +616,7 @@ run_check_task() {
 
 main() {
   action="${1:-}"
+  kernel_path=""
 
   case "${action}" in
     -h | --help)
@@ -691,18 +639,49 @@ main() {
       ;;
   esac
 
-  if [ "$#" -ne 1 ]; then
-    echo "Unexpected arguments: ${*:2}" >&2
-    echo >&2
-    show_help >&2
-    exit 1
-  fi
+  shift
+  case "${action}" in
+    install)
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --kernel)
+            if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+              echo "Missing value for --kernel." >&2
+              echo >&2
+              show_help >&2
+              exit 1
+            fi
+            kernel_path="$2"
+            shift 2
+            ;;
+          -h | --help)
+            show_help
+            exit 0
+            ;;
+          *)
+            echo "Unexpected install argument: $1" >&2
+            echo >&2
+            show_help >&2
+            exit 1
+            ;;
+        esac
+      done
+      ;;
+    check)
+      if [ "$#" -ne 0 ]; then
+        echo "Unexpected check arguments: $*" >&2
+        echo >&2
+        show_help >&2
+        exit 1
+      fi
+      ;;
+  esac
 
   kata_load_config "${script_dir}/config/smoke-test.env"
 
   case "${action}" in
     install)
-      run_install_task
+      run_install_task "${kernel_path}"
       ;;
     check)
       run_check_task

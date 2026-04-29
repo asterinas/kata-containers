@@ -8,7 +8,6 @@ kata_export_config_vars() {
   for config_var in \
     CONTAINERD_ADDRESS \
     CRICTL_VERSION \
-    KATA_ASTERINAS_KERNEL_PATH \
     KATA_CGROUP_NAMESPACE \
     KATA_CGROUP_PARENT \
     KATA_CHECK_DEBUG \

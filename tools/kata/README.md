@@ -2,7 +2,7 @@ Kata helpers live here.
 
 - `common.sh`: shared shell helpers used by the other Kata scripts
 - `run_kata.sh`: provides predefined `smoke`, `pass`, and `workload` Kata tasks
-- `kata_env.sh`: provides `install` and `check` for the shared Kata environment lifecycle
+- `kata_env.sh`: provides `install` and `check` for the shared Kata environment lifecycle, including repo-owned config installation
 - `kata_services.sh`: provides `start`, `stop`, and `status` for the background Kata smoke-test services
 - `interactive_doc_test.py`: replays the documented `docker run -it` and
   inner `nerdctl run -it` flows with `pexpect` for both the `asterinas/kata`
@@ -17,6 +17,12 @@ Kata helpers live here.
 ## Configuration
 
 - Default smoke-test settings live in `tools/kata/config/smoke-test.env`.
+- `bash tools/kata/kata_env.sh install` installs the repo-owned Kata,
+  `containerd`, and CNI config files into `/etc`; `kata_services.sh start`
+  only validates those files and starts the background services.
+- To install the config with a specific guest kernel path, use
+  `bash tools/kata/kata_env.sh install --kernel /path/to/kernel`. Without this
+  option, the script keeps the current guest kernel selection logic.
 - Pinned Asterinas source/image metadata lives in
   `tools/kata/config/asterinas-metadata.env`.
 - Refresh that metadata with `bash tools/kata/asterinas_metadata.sh update`.

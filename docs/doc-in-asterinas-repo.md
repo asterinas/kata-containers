@@ -105,9 +105,15 @@ nerdctl run \
     docker.io/alpine:latest
 ```
 
-You can also point Kata to a locally built guest kernel. Edit
-`/etc/kata-containers/configuration.toml` and set `kernel` to the path of your
-local kernel image:
+You can also point Kata to a locally built guest kernel when installing the
+Kata environment:
+
+```bash
+tools/kata/kata_env.sh install --kernel /root/asterinas/target/osdk/aster-kernel-osdk-bin.qemu_elf
+```
+
+Or edit `/etc/kata-containers/configuration.toml` after installation and set
+`kernel` to the path of your local kernel image:
 
 ```toml
 [hypervisor.qemu]
