@@ -371,7 +371,7 @@ def run_end_user_scenario(args: argparse.Namespace) -> pathlib.Path:
     try:
         announce(f"[end-user] using outer image: {args.kata_image}")
         host_proc_version = shell.run("cat /proc/version")
-        shell.run("cd /root/asterinas")
+        shell.run("cd /root/kata-containers")
         announce("[end-user] starting Kata background services")
         shell.run("./tools/kata/kata_services.sh start", timeout=300)
         log_active_kata_configs(shell, "end-user")

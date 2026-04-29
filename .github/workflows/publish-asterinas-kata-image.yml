@@ -225,12 +225,18 @@ jobs:
             ASTERINAS_RELEASE_VERSION=${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}
             ASTERINAS_DOCKER_IMAGE_VERSION=${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
 
-      - name: Verify Local Image Metadata
+      - name: Verify Local Image Layout
         if: ${{ steps.publish.outputs.should_push != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
-          docker image inspect "${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}" >/dev/null
+          image="${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}"
+          docker image inspect "${image}" >/dev/null
+          docker run --rm "${image}" bash -lc '
+            test "$(pwd)" = /root/kata-containers
+            test -x /root/kata-containers/tools/kata/kata_env.sh
+            test ! -e /root/asterinas/tools/kata
+          '
 
       - name: Write Workflow Summary
         shell: bash

@@ -7,7 +7,7 @@ ARG KATA_STATIC_TARBALL_SHA256=
 ARG ASTERINAS_RELEASE_VERSION=
 ARG ASTERINAS_DOCKER_IMAGE_VERSION=
 
-WORKDIR /root/asterinas
+WORKDIR /root/kata-containers
 
 RUN sed -i '/^export ASTER_SCML=.*linux-compatibility/d' /root/.bashrc && \
     printf '%s\n' \
@@ -17,12 +17,12 @@ RUN sed -i '/^export ASTER_SCML=.*linux-compatibility/d' /root/.bashrc && \
     '    export ASTER_SCML=""' \
     'fi' >> /root/.bashrc
 
-COPY tools/kata /root/asterinas/tools/kata
+COPY tools/kata /root/kata-containers/tools/kata
 
 RUN KATA_STATIC_TARBALL_RELEASE_REPO="${KATA_STATIC_TARBALL_RELEASE_REPO}" \
     KATA_STATIC_TARBALL_URL="${KATA_STATIC_TARBALL_URL}" \
     KATA_STATIC_TARBALL_SHA256="${KATA_STATIC_TARBALL_SHA256}" \
-    bash /root/asterinas/tools/kata/kata_env.sh install
+    bash /root/kata-containers/tools/kata/kata_env.sh install
 
-RUN printf '%s\n' "${ASTERINAS_RELEASE_VERSION}" > /root/asterinas/.asterinas-version && \
-    printf '%s\n' "${ASTERINAS_DOCKER_IMAGE_VERSION}" > /root/asterinas/.asterinas-docker-image-version
+RUN printf '%s\n' "${ASTERINAS_RELEASE_VERSION}" > /root/kata-containers/.asterinas-version && \
+    printf '%s\n' "${ASTERINAS_DOCKER_IMAGE_VERSION}" > /root/kata-containers/.asterinas-docker-image-version
