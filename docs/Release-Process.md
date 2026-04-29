@@ -88,9 +88,20 @@ the `INTEL_TDX=1` build.
 The [publish-asterinas-kata-image](https://github.com/kata-containers/kata-containers/actions/workflows/publish-asterinas-kata-image.yml)
 workflow builds the matching Docker Hub image. It reads the pinned Asterinas
 source/image metadata from `tools/kata/config/asterinas-metadata.env`, layers the repo-owned
-`tools/kata/` helpers into `/root/asterinas/tools/kata`, runs
+`tools/kata/` helpers into `/root/kata-containers/tools/kata`, sets
+`/root/kata-containers` as the image working directory, runs
 `kata_env.sh install`, and then pushes `asterinas/kata` when Docker
 Hub credentials are available.
+
+The Asterinas CI workflows use consumer-side readiness gates instead of a
+strict workflow chain. Release packaging can update the same dated release tag
+for a later push. Jobs that need the Asterinas Kata static tarball set the
+expected kata-containers commit and wait until the latest release notes contain
+that commit before resolving the tarball URL. The end-user documentation replay
+similarly waits until the Docker Hub `asterinas/kata:<DOCKER_IMAGE_VERSION>` tag
+has the expected `/root/kata-containers` helper layout. This keeps independent
+checks parallel while preventing consumers from using stale release or image
+artifacts.
 
 Update `tools/kata/config/asterinas-metadata.env` with
 `bash tools/kata/asterinas_metadata.sh update` before rolling the repository

@@ -42,17 +42,17 @@ Environment:
 EOF
 }
 
-download_release_asset() {
+download_release_asset_once() {
   output_path="$1"
   download_url="$2"
 
   if command -v wget >/dev/null 2>&1; then
     if [ -f "${output_path}" ]; then
-      wget --continue --tries=5 --output-document "${output_path}" "${download_url}"
+      wget --continue --tries=1 --output-document "${output_path}" "${download_url}"
       return
     fi
 
-    wget --tries=5 --output-document "${output_path}" "${download_url}"
+    wget --tries=1 --output-document "${output_path}" "${download_url}"
     return
   fi
 
@@ -66,6 +66,26 @@ download_release_asset() {
   curl --fail --location --retry 5 --retry-all-errors --silent --show-error \
     --output "${output_path}" \
     "${download_url}"
+}
+
+download_release_asset() {
+  output_path="$1"
+  download_url="$2"
+  max_attempts="${KATA_DOWNLOAD_ATTEMPTS:-5}"
+  retry_sleep="${KATA_DOWNLOAD_RETRY_SLEEP:-10}"
+
+  for attempt in $(seq 1 "${max_attempts}"); do
+    if download_release_asset_once "${output_path}" "${download_url}"; then
+      return 0
+    fi
+
+    if [ "${attempt}" -eq "${max_attempts}" ]; then
+      return 1
+    fi
+
+    echo "Download failed for ${download_url}; retrying (${attempt}/${max_attempts})..." >&2
+    sleep "${retry_sleep}"
+  done
 }
 
 release_asset_basename() {

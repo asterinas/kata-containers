@@ -330,11 +330,6 @@ jobs:
             "${BUILD_SUMMARY}"
           )
 
-          if [[ "${GITHUB_EVENT_NAME}" == "push" ]] && gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "Release ${RELEASE_TAG} already exists; skipping publish for duplicate push build."
-            exit 0
-          fi
-
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             edit_draft_flag=(--draft=false)
             if [[ "${DRAFT_RELEASE}" == "true" ]]; then

@@ -58,6 +58,7 @@ jobs:
           WORKFLOW_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
           WORKFLOW_RELEASE_REPO: ${{ inputs.kata_static_tarball_release_repo }}
           WORKFLOW_STATIC_TARBALL_URL: ${{ inputs.kata_static_tarball_url }}
+          KATA_STATIC_TARBALL_EXPECTED_KATA_COMMIT: ${{ github.event_name == 'push' && github.sha || '' }}
           RESOLVED_ASSETS_ENV_FILE: /tmp/asterinas-release-assets.env
         shell: bash
         run: |

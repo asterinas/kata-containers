@@ -82,6 +82,33 @@ Kata helpers live here.
   jobs. After switching to `asterinas/asterinas`, the same gates detect new
   upstream versions and continue only when publication is needed.
 
+## Asterinas workflow dependencies
+
+- The Asterinas workflows are intentionally not serialized at the workflow
+  level. Metadata checks, source-kernel smoke tests, release packaging, image
+  publishing, and documentation replay all start from the same push so
+  independent work can run in parallel.
+- Consumers of release artifacts use readiness checks instead of a global
+  workflow dependency. On push events, `resolve_release_assets.sh` can wait for
+  the latest Asterinas Kata release to advertise the current `github.sha` in its
+  release notes before returning the static tarball URL. This makes tests and
+  image publishing wait only when they need a newly produced tarball; scheduled
+  and manual runs without that expected commit keep using the latest available
+  release immediately.
+- The published-image documentation flow uses the same pattern for Docker Hub:
+  it pulls `asterinas/kata:<DOCKER_IMAGE_VERSION>` and validates the image
+  layout before replaying the end-user flow. If the tag still points at an older
+  image, it waits and pulls again instead of failing or forcing the whole docs
+  workflow to wait behind image publication every time.
+- The release workflow updates an existing same-day release tag on push. This
+  lets a later push replace the static tarball for the same dated tag, and the
+  artifact readiness checks above prevent dependent jobs from consuming the
+  previous push's tarball.
+- `Test | Kata with Asterinas as the Guest Kernel` still runs its Linux guest
+  matrix member independently; only the Asterinas guest setup needs the
+  Asterinas-flavoured static tarball. Keeping this as a consumer-side gate
+  avoids blocking unrelated checks when no new release artifact is required.
+
 ## Local virtio-fs note
 
 - The local `bash tools/kata/run_kata.sh smoke` flow now uses `virtio-fs`.
