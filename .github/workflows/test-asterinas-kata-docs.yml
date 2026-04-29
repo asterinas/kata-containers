@@ -83,11 +83,32 @@ jobs:
             python3 -m pip install --user pexpect
           fi
 
-      - name: Pull Published Kata with Asterinas as the Guest Kernel Image
+      - name: Pull Published Kata Image with Expected Layout
         shell: bash
         run: |
           set -euxo pipefail
-          docker pull "asterinas/kata:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}"
+          image="asterinas/kata:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}"
+          for attempt in $(seq 1 30); do
+            docker pull "${image}"
+            if docker run --rm "${image}" bash -lc '
+              test "$(pwd)" = /root/kata-containers
+              test -x /root/kata-containers/tools/kata/kata_services.sh
+              test ! -e /root/asterinas/tools/kata
+            '; then
+              exit 0
+            fi
+
+            if [ "${attempt}" -eq 30 ]; then
+              docker run --rm "${image}" bash -lc '
+                pwd
+                ls -ld /root/asterinas /root/kata-containers /root/asterinas/tools/kata /root/kata-containers/tools/kata 2>/dev/null || true
+              ' || true
+              exit 1
+            fi
+
+            echo "Published image does not have the expected /root/kata-containers layout yet; retrying."
+            sleep 60
+          done
 
       - name: Replay Documented End-User Flow
         shell: bash
