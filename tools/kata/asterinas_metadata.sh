@@ -215,7 +215,7 @@ update_command() {
   fi
 
   repository="${repository:-${ASTERINAS_REPOSITORY:-jjf-dev/asterinas}}"
-  ref="${ref:-${ASTERINAS_REF:-kata-support}}"
+  ref="${ref:-${ASTERINAS_REF:-lxh/virtio-fs-q1}}"
 
   resolve_github_metadata "${repository}" "${ref}"
 
