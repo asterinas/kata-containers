@@ -13,11 +13,11 @@ The pinned Asterinas source and image metadata now live in:
 
 That file currently records:
 
-- `ASTERINAS_REPOSITORY=jjf-dev/asterinas`
-- `ASTERINAS_REF=kata-support`
-- `ASTERINAS_COMMIT=81a7d00c75553745afded98a3932db43e25b9873`
-- `ASTERINAS_VERSION=0.17.1`
-- `ASTERINAS_DOCKER_IMAGE_VERSION=0.17.2-20260407`
+- `ASTERINAS_REPOSITORY=asterinas/asterinas`
+- `ASTERINAS_REF=main`
+- `ASTERINAS_COMMIT=cdf412ed25b62afe811cdbc19b157be532cc729a`
+- `ASTERINAS_VERSION=0.17.2`
+- `ASTERINAS_DOCKER_IMAGE_VERSION=0.17.2-20260523`
 
 The builder image is no longer stored separately in the metadata file. It is
 derived consistently as:
@@ -33,18 +33,22 @@ The metadata helper entry point is now:
 Supported subcommands:
 
 - `bash tools/kata/asterinas_metadata.sh load`
+- `bash tools/kata/asterinas_metadata.sh resolve`
 - `bash tools/kata/asterinas_metadata.sh update`
 
 `load` emits shell-style `key=value` pairs and GitHub Actions outputs.
+
+`resolve` resolves live metadata from `asterinas/asterinas` when the selector
+points at the upstream repository, and otherwise falls back to the pinned
+metadata in this repository.
 
 `update` refreshes `tools/kata/config/asterinas-metadata.env` from the pinned
 upstream repository and ref.
 
 ## Workflow Behavior
 
-These workflows now read the repo-owned metadata instead of resolving the
-Asterinas source dynamically from a separate repository API call during each
-run:
+These workflows resolve Asterinas metadata through the shared helper, using live
+upstream metadata for `asterinas/asterinas@main` by default:
 
 - `.github/workflows/test-asterinas-kata.yml`
 - `.github/workflows/test-asterinas-kata-docs.yml`
@@ -57,7 +61,7 @@ The shared Kata tarball resolution still happens in:
 
 That script now:
 
-1. loads the pinned Asterinas metadata from this repository; and
+1. resolves Asterinas metadata through `tools/kata/asterinas_metadata.sh`; and
 2. resolves the latest Kata static tarball asset from the configured release
    repository.
 

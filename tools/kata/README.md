@@ -54,15 +54,14 @@ Kata helpers live here.
   `bash tools/kata/asterinas_metadata.sh resolve` instead of loading the pinned
   file directly.
 - `tools/kata/config/asterinas-metadata.env` acts as both the selector and the
-  pinned fallback. Keep it pointed at `jjf-dev/asterinas` until
-  `asterinas/asterinas:main` is ready for Kata CI.
+  pinned fallback. By default it points at `asterinas/asterinas` on `main`.
 - When `ASTERINAS_REPOSITORY` is exactly `asterinas/asterinas`, `resolve` reads
   live metadata from GitHub at `ASTERINAS_REF`, including the commit SHA,
   commit date, `VERSION`, and `DOCKER_IMAGE_VERSION`.
 - When `ASTERINAS_REPOSITORY` points to any other Asterinas repository, `resolve`
   uses the pinned commit/version/image values from
   `tools/kata/config/asterinas-metadata.env`. This avoids cross-organization
-  `gh` access problems for repositories such as `jjf-dev/asterinas`.
+  `gh` access problems for forked or private Asterinas repositories.
 - The workflow summaries include `asterinas_metadata_source`, which is
   `upstream` for live `asterinas/asterinas` metadata and `file` for pinned
   metadata.
@@ -84,9 +83,8 @@ Kata helpers live here.
 - `Test | Documentation Flow for Kata with Asterinas as the Guest Kernel` runs
   daily at `07:10 UTC`. Scheduled runs are unconditional and always execute the
   documented flows.
-- While `tools/kata/config/asterinas-metadata.env` points at
-  `jjf-dev/asterinas`, scheduled publish and release runs stop at their gate
-  jobs. After switching to `asterinas/asterinas`, the same gates detect new
+- Because `tools/kata/config/asterinas-metadata.env` points at
+  `asterinas/asterinas`, scheduled publish and release gates detect new
   upstream versions and continue only when publication is needed.
 
 ## Asterinas workflow dependencies

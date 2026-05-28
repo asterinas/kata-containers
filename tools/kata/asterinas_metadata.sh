@@ -214,8 +214,8 @@ update_command() {
     load_metadata_selector "${output_file}"
   fi
 
-  repository="${repository:-${ASTERINAS_REPOSITORY:-jjf-dev/asterinas}}"
-  ref="${ref:-${ASTERINAS_REF:-lxh/virtio-fs-q1}}"
+  repository="${repository:-${ASTERINAS_REPOSITORY:-${upstream_repository}}}"
+  ref="${ref:-${ASTERINAS_REF:-main}}"
 
   resolve_github_metadata "${repository}" "${ref}"
 
