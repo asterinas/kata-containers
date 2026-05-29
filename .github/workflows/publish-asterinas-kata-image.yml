@@ -212,6 +212,7 @@ jobs:
           provenance: false
           tags: |
             ${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
+            ${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.description=Asterinas base image with Kata helpers and Kata environment preinstalled
@@ -232,7 +233,9 @@ jobs:
         run: |
           set -euo pipefail
           image="${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}"
+          version_image="${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}"
           docker image inspect "${image}" >/dev/null
+          docker image inspect "${version_image}" >/dev/null
           docker run --rm "${image}" bash -lc '
             test "$(pwd)" = /root/kata-containers
             test -x /root/kata-containers/tools/kata/kata_env.sh
@@ -249,7 +252,9 @@ jobs:
           {
             echo '## Kata image result for the Asterinas guest kernel'
             echo
-            echo "- Image: \`${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}\`"
+            echo "- Images:"
+            echo "  - \`${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}\`"
+            echo "  - \`${{ env.IMAGE_REPOSITORY }}:${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}\`"
             echo "- Base image: \`${{ env.ASTERINAS_BASE_IMAGE }}\`"
             echo "- Asterinas version: \`${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}\`"
             echo "- Push enabled: \`${{ steps.publish.outputs.should_push }}\`"
