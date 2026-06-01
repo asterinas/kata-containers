@@ -1305,6 +1305,10 @@ func (k *kataAgent) setupNetworks(ctx context.Context, sandbox *Sandbox, c *Cont
 		return nil
 	}
 
+	if shouldBypassGuestNetworkConfig(sandbox) {
+		return nil
+	}
+
 	var err error
 	var endpoints []Endpoint
 	if c == nil || c.id == sandbox.id {
@@ -1359,6 +1363,14 @@ func (k *kataAgent) setupNetworks(ctx context.Context, sandbox *Sandbox, c *Cont
 	}
 
 	return nil
+}
+
+func shouldBypassGuestNetworkConfig(sandbox *Sandbox) bool {
+	return isAsterinasKernelPath(sandbox.config.HypervisorConfig.KernelPath)
+}
+
+func isAsterinasKernelPath(kernelPath string) bool {
+	return strings.Contains(filepath.Base(strings.ToLower(kernelPath)), "aster")
 }
 
 func (k *kataAgent) createContainer(ctx context.Context, sandbox *Sandbox, c *Container) (p *Process, err error) {

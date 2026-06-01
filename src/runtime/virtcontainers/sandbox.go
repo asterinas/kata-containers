@@ -1422,6 +1422,15 @@ func (s *Sandbox) runPrestartHooks(ctx context.Context, prestartHookFunc func(co
 	return nil
 }
 
+func (s *Sandbox) shouldColdPlugNetworkBeforeStart(prestartHookFunc func(context.Context) error) bool {
+	return prestartHookFunc != nil &&
+		s.factory == nil &&
+		s.config.HypervisorType == QemuHypervisor &&
+		isAsterinasKernelPath(s.config.HypervisorConfig.KernelPath) &&
+		!s.config.NetworkConfig.DisableNewNetwork &&
+		s.config.NetworkConfig.NetworkID != ""
+}
+
 // startVM starts the VM.
 func (s *Sandbox) startVM(ctx context.Context, prestartHookFunc func(context.Context) error) (err error) {
 	span, ctx := katatrace.Trace(ctx, s.Logger(), "startVM", sandboxTracingTags, map[string]string{"sandbox_id": s.id})
@@ -1447,10 +1456,15 @@ func (s *Sandbox) startVM(ctx context.Context, prestartHookFunc func(context.Con
 	}()
 
 	caps := s.hypervisor.Capabilities(ctx)
+	coldPlugNetworkBeforeStart := s.shouldColdPlugNetworkBeforeStart(prestartHookFunc)
+
 	// If the hypervisor does not support device hotplug, run prestart hooks
 	// before spawning the VM so that it is possible to let the hooks set up
 	// netns and thus network devices are set up statically.
-	if !caps.IsNetworkDeviceHotplugSupported() && prestartHookFunc != nil {
+	// QEMU also takes this path for Asterinas guests: Asterinas currently
+	// cannot discover hotplugged virtio-net devices, so put the NIC on the
+	// QEMU command line before the VM starts.
+	if (!caps.IsNetworkDeviceHotplugSupported() || coldPlugNetworkBeforeStart) && prestartHookFunc != nil {
 		err = s.runPrestartHooks(ctx, prestartHookFunc)
 		if err != nil {
 			return err
@@ -1483,7 +1497,7 @@ func (s *Sandbox) startVM(ctx context.Context, prestartHookFunc func(context.Con
 		return err
 	}
 
-	if caps.IsNetworkDeviceHotplugSupported() && prestartHookFunc != nil {
+	if caps.IsNetworkDeviceHotplugSupported() && !coldPlugNetworkBeforeStart && prestartHookFunc != nil {
 		err = s.runPrestartHooks(ctx, prestartHookFunc)
 		if err != nil {
 			return err
@@ -1498,6 +1512,7 @@ func (s *Sandbox) startVM(ctx context.Context, prestartHookFunc func(context.Con
 	//    rescan and handle the change.
 	if !s.config.NetworkConfig.DisableNewNetwork &&
 		caps.IsNetworkDeviceHotplugSupported() &&
+		!coldPlugNetworkBeforeStart &&
 		(s.factory != nil || prestartHookFunc != nil) {
 		if _, err := s.network.AddEndpoints(ctx, s, nil, true); err != nil {
 			return err

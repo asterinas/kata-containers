@@ -1001,6 +1001,9 @@ type NetDevice struct {
 	// DisableModern prevents qemu from relying on fast MMIO.
 	DisableModern bool
 
+	// DisableLegacy forces qemu to expose a modern-only virtio PCI device.
+	DisableLegacy bool
+
 	// ROMFile specifies the ROM file being used for this device.
 	ROMFile string
 
@@ -1088,9 +1091,12 @@ func (netdev NetDevice) QemuDeviceParams(config *Config) []string {
 		deviceParams = append(deviceParams, s)
 	}
 
+	if netdev.Transport.isVirtioPCI(config) && (netdev.DisableLegacy || netdev.Type == USER) {
+		deviceParams = append(deviceParams, "disable-legacy=on")
+	}
+
 	if netdev.Type == USER && driver == VirtioNetPCI {
 		deviceParams = append(deviceParams,
-			"disable-legacy=on",
 			"mrg_rxbuf=off",
 			"ctrl_rx=off",
 			"ctrl_rx_extra=off",

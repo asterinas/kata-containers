@@ -196,6 +196,7 @@ type qemuArchBase struct {
 	disableNvdimm bool
 	dax           bool
 	legacySerial  bool
+	asterinas     bool
 }
 
 const (
@@ -580,7 +581,7 @@ func networkModelToQemuType(model NetInterworkingModel) govmmQemu.NetDeviceType 
 	}
 }
 
-func genericNetwork(endpoint Endpoint, vhost, nestedRun bool, index int) (govmmQemu.NetDevice, error) {
+func genericNetwork(endpoint Endpoint, vhost, nestedRun, disableLegacy bool, index int) (govmmQemu.NetDevice, error) {
 	var d govmmQemu.NetDevice
 	switch ep := endpoint.(type) {
 	case *VethEndpoint, *MacvlanEndpoint, *IPVlanEndpoint:
@@ -595,6 +596,7 @@ func genericNetwork(endpoint Endpoint, vhost, nestedRun bool, index int) (govmmQ
 			Script:        "no",
 			VHost:         vhost,
 			DisableModern: nestedRun,
+			DisableLegacy: disableLegacy,
 			FDs:           netPair.VMFds,
 			VhostFDs:      netPair.VhostFds,
 		}
@@ -609,6 +611,7 @@ func genericNetwork(endpoint Endpoint, vhost, nestedRun bool, index int) (govmmQ
 			Script:        "no",
 			VHost:         vhost,
 			DisableModern: nestedRun,
+			DisableLegacy: disableLegacy,
 			FDs:           ep.VMFds,
 			VhostFDs:      ep.VhostFds,
 		}
@@ -624,6 +627,7 @@ func genericNetwork(endpoint Endpoint, vhost, nestedRun bool, index int) (govmmQ
 			Script:        "no",
 			VHost:         vhost,
 			DisableModern: nestedRun,
+			DisableLegacy: disableLegacy,
 			FDs:           netPair.VMFds,
 			VhostFDs:      netPair.VhostFds,
 		}
@@ -635,7 +639,7 @@ func genericNetwork(endpoint Endpoint, vhost, nestedRun bool, index int) (govmmQ
 }
 
 func (q *qemuArchBase) appendNetwork(_ context.Context, devices []govmmQemu.Device, endpoint Endpoint) ([]govmmQemu.Device, error) {
-	d, err := genericNetwork(endpoint, q.vhost, q.nestedRun, q.networkIndex)
+	d, err := genericNetwork(endpoint, q.vhost, q.nestedRun, q.asterinas, q.networkIndex)
 	if err != nil {
 		return devices, fmt.Errorf("Failed to append network %v", err)
 	}

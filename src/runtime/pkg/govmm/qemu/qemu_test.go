@@ -205,6 +205,31 @@ func TestAppendDeviceNetwork(t *testing.T) {
 	testAppend(netdev, deviceNetworkString, t)
 }
 
+func TestAppendDeviceNetworkDisableLegacy(t *testing.T) {
+	netdev := NetDevice{
+		Driver:        VirtioNet,
+		Type:          TAP,
+		ID:            "tap0",
+		IFName:        "ceth0",
+		Script:        "no",
+		DownScript:    "no",
+		VHost:         true,
+		MACAddress:    "01:02:de:ad:be:ef",
+		DisableModern: true,
+		DisableLegacy: true,
+		ROMFile:       romfile,
+	}
+
+	if netdev.Transport.isVirtioPCI(nil) {
+		netdev.Bus = "/pci-bus/pcie.0"
+		netdev.Addr = "255"
+	} else if netdev.Transport.isVirtioCCW(nil) {
+		netdev.DevNo = DevNo
+	}
+
+	testAppend(netdev, deviceNetworkDisableLegacyString, t)
+}
+
 func TestAppendDeviceNetworkMq(t *testing.T) {
 	foo, _ := os.CreateTemp(os.TempDir(), "govmm-qemu-test")
 	bar, _ := os.CreateTemp(os.TempDir(), "govmm-qemu-test")

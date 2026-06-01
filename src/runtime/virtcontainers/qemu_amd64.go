@@ -124,6 +124,7 @@ func newQemuArch(config HypervisorConfig) (qemuArch, error) {
 			dax:                  true,
 			protection:           noneProtection,
 			legacySerial:         config.LegacySerial,
+			asterinas:            isAsterinasKernelPath(config.KernelPath),
 		},
 		vmFactory:      factory,
 		snpGuest:       config.SevSnpGuest,

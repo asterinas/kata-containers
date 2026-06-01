@@ -204,7 +204,7 @@ func (q *qemuS390x) supportGuestMemoryHotplug() bool {
 }
 
 func (q *qemuS390x) appendNetwork(ctx context.Context, devices []govmmQemu.Device, endpoint Endpoint) ([]govmmQemu.Device, error) {
-	d, err := genericNetwork(endpoint, false, false, q.networkIndex)
+	d, err := genericNetwork(endpoint, false, false, false, q.networkIndex)
 	if err != nil {
 		return devices, fmt.Errorf("Failed to append network %v", err)
 	}
