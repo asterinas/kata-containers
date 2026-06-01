@@ -22,8 +22,11 @@ Commands:
   status  Prints whether the managed services are running.
 
 Environment:
-  KATA_CONFIG_FILE  Optional Bash config fragment. Default:
-                    tools/kata/config/smoke-test.env.
+  KATA_CONFIG_FILE          Optional Bash config fragment. Default:
+                            tools/kata/config/smoke-test.env.
+  KATA_TEST_NETWORK_NAME    Managed nerdctl network name.
+  KATA_TEST_NETWORK_SUBNET  Managed nerdctl network subnet.
+  KATA_TEST_NETWORK_GATEWAY Managed nerdctl network gateway.
 EOF
 }
 
@@ -39,6 +42,36 @@ prepare_host_prerequisites() {
     run_optional_host_prerequisite sysctl -w net.bridge.bridge-nf-call-iptables=1
   fi
   iptables -P FORWARD ACCEPT
+}
+
+should_manage_test_network() {
+  [ -n "${KATA_TEST_NETWORK_NAME:-}" ] &&
+    [ "${KATA_TEST_NET:-}" = "${KATA_TEST_NETWORK_NAME}" ]
+}
+
+ensure_test_network() {
+  local network_name="${KATA_TEST_NETWORK_NAME:-}"
+  local network_subnet="${KATA_TEST_NETWORK_SUBNET:-}"
+  local network_gateway="${KATA_TEST_NETWORK_GATEWAY:-}"
+
+  if ! should_manage_test_network; then
+    return 0
+  fi
+
+  if nerdctl --address "${CONTAINERD_ADDRESS}" network inspect "${network_name}" >/dev/null 2>&1; then
+    echo "Kata test network ${network_name} already exists."
+    return 0
+  fi
+
+  if [ -z "${network_subnet}" ] || [ -z "${network_gateway}" ]; then
+    echo "KATA_TEST_NETWORK_SUBNET and KATA_TEST_NETWORK_GATEWAY are required to create ${network_name}." >&2
+    return 1
+  fi
+
+  nerdctl --address "${CONTAINERD_ADDRESS}" network create \
+    --subnet "${network_subnet}" \
+    --gateway "${network_gateway}" \
+    "${network_name}"
 }
 
 wait_for_socket() {
@@ -181,6 +214,7 @@ stop_services() {
 start_services() {
   if services_are_fully_running; then
     echo "Kata services are already running."
+    ensure_test_network
     return 0
   fi
 
@@ -211,12 +245,20 @@ start_services() {
     return 1
   fi
 
+  ensure_test_network
+
   echo "Started Kata services."
 }
 
 status_services() {
   print_status "syslogd" "${syslogd_pid_file}" /dev/log
   print_status "containerd" "${containerd_pid_file}" "${CONTAINERD_ADDRESS:-/run/containerd/containerd.sock}"
+  if should_manage_test_network &&
+    nerdctl --address "${CONTAINERD_ADDRESS}" network inspect "${KATA_TEST_NETWORK_NAME}" >/dev/null 2>&1; then
+    printf 'nerdctl network: %s (ready)\n' "${KATA_TEST_NETWORK_NAME}"
+  elif should_manage_test_network; then
+    printf 'nerdctl network: %s (missing)\n' "${KATA_TEST_NETWORK_NAME}"
+  fi
 
   if services_are_fully_running; then
     echo "Kata services are running."

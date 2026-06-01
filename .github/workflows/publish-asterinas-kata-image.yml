@@ -244,6 +244,13 @@ jobs:
             test -f /etc/kata-containers/config.d/10-container.toml
             test -f /etc/containerd/config.toml
             test -f /etc/cni/net.d/10-kata.conflist
+            test -x /opt/cni/bin/bridge
+            test -x /opt/cni/bin/firewall
+            test -x /opt/cni/bin/host-local
+            test -x /opt/cni/bin/loopback
+            test -x /opt/cni/bin/portmap
+            test -x /opt/cni/bin/tuning
+            crictl --version
           '
 
       - name: Write Workflow Summary

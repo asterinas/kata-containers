@@ -208,6 +208,7 @@ kata_install_repo_configs() {
 
 kata_require_installed_configs() {
   local missing=0
+  local cni_plugin
   local required_path
   local required_paths=(
     /etc/kata-containers/configuration.toml
@@ -227,6 +228,13 @@ kata_require_installed_configs() {
     echo "Missing required CNI plugin path: /opt/cni/bin" >&2
     missing=1
   fi
+
+  for cni_plugin in bridge firewall host-local loopback portmap tuning; do
+    if [ ! -x "/opt/cni/bin/${cni_plugin}" ]; then
+      echo "Missing required CNI plugin: /opt/cni/bin/${cni_plugin}" >&2
+      missing=1
+    fi
+  done
 
   if [ "${missing}" -ne 0 ]; then
     echo "Run \`bash tools/kata/kata_env.sh install\` before starting Kata services." >&2

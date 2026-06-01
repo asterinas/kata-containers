@@ -29,6 +29,7 @@ Environment:
   KATA_VERSION                  Kata release version. Default: 3.28.0.
   NERDCTL_VERSION               `nerdctl` release version. Default: v2.2.2.
   KATA_INSTALL_CRICTL           Set to 1/true/yes to install `crictl`.
+                                Default: enabled by smoke-test config.
   KATA_FORCE_APT                Set to 1/true/yes to force `apt-get update &&
                                 apt-get install`.
   KATA_PAYLOAD_IMAGE            Kata payload image. Default:
@@ -375,6 +376,7 @@ install_required_packages() {
     busybox-syslogd
     containernetworking-plugins
     containerd
+    iproute2
     iptables
     jq
     kmod
@@ -619,6 +621,17 @@ run_check_task() {
 
   grep -F 'runtime_type = "io.containerd.kata.v2"' /etc/containerd/config.toml
   grep -F 'ConfigPath = "/etc/kata-containers/configuration.toml"' /etc/containerd/config.toml
+
+  for cni_plugin in bridge firewall host-local loopback portmap tuning; do
+    test -x "/opt/cni/bin/${cni_plugin}"
+  done
+  ls -l \
+    /opt/cni/bin/bridge \
+    /opt/cni/bin/firewall \
+    /opt/cni/bin/host-local \
+    /opt/cni/bin/loopback \
+    /opt/cni/bin/portmap \
+    /opt/cni/bin/tuning
 
   nerdctl --address "${CONTAINERD_ADDRESS}" info > /tmp/nerdctl-info.txt
   kata-runtime env > /tmp/kata-env.txt

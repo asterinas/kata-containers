@@ -40,6 +40,8 @@ Environment:
                                 workload. Default: 300.
   KATA_TEST_PULL_IMAGE          Set to 0/false/no to skip `nerdctl pull`.
   KATA_TEST_NET                 `nerdctl run --net` value.
+  KATA_TEST_IP                  Optional `nerdctl run --ip` value.
+  KATA_TEST_DNS                 Optional `nerdctl run --dns` value.
   KATA_NERDCTL_DEBUG            Set to 1/true/yes to add `--debug-full` and
                                 print `nerdctl run` output during successful
                                 runs too.
@@ -146,10 +148,11 @@ ensure_cgroup_parent() {
 run_workload_task() (
   local containerd_address image runtime snapshotter test_name expected_output_regex
   local cgroup_namespace cgroup_parent pull_log_file run_log_file test_log_file
-  local test_net_mode cgroup_parent_path test_timeout
+  local test_net_mode test_ip test_dns cgroup_parent_path test_timeout
   local captured_output_file
   local rc
   local -a cgroup_parent_args
+  local -a network_args
   local -a nerdctl_debug_args
   local -a snapshotter_args
   local -a test_command
@@ -230,6 +233,8 @@ run_workload_task() (
   run_log_file="${KATA_RUN_LOG_FILE:-/tmp/nerdctl-run-command.txt}"
   test_log_file="${KATA_TEST_LOG_FILE:-/tmp/nerdctl-run.txt}"
   test_net_mode="${KATA_TEST_NET}"
+  test_ip="${KATA_TEST_IP:-}"
+  test_dns="${KATA_TEST_DNS:-}"
   test_timeout="${KATA_TEST_TIMEOUT:-300}"
 
   build_test_command
@@ -242,6 +247,10 @@ run_workload_task() (
   trap workload_cleanup EXIT
 
   cgroup_parent_args=()
+  network_args=()
+  if [ -n "${test_net_mode}" ]; then
+    network_args=(--net "${test_net_mode}")
+  fi
   nerdctl_debug_args=()
   snapshotter_args=()
   if [ "${cgroup_namespace}" = "host" ]; then
@@ -257,6 +266,20 @@ run_workload_task() (
     nerdctl_debug_args=(--debug-full)
   fi
 
+  case "${test_net_mode}" in
+    '' | none | host)
+      ;;
+    *)
+      if [ -n "${test_ip}" ]; then
+        network_args+=(--ip "${test_ip}")
+      fi
+
+      if [ -n "${test_dns}" ]; then
+        network_args+=(--dns "${test_dns}")
+      fi
+      ;;
+  esac
+
   if should_pull_test_image; then
     nerdctl "${snapshotter_args[@]}" --address "${containerd_address}" pull --quiet "${image}" \
       2>&1 | tee "${pull_log_file}"
@@ -266,6 +289,8 @@ run_workload_task() (
   printf 'runtime=%s\n' "${runtime}" >> "${run_log_file}"
   printf 'snapshotter=%s\n' "${snapshotter:-nerdctl-default}" >> "${run_log_file}"
   printf 'net=%s\n' "${test_net_mode}" >> "${run_log_file}"
+  printf 'ip=%s\n' "${test_ip:-nerdctl-default}" >> "${run_log_file}"
+  printf 'dns=%s\n' "${test_dns:-nerdctl-default}" >> "${run_log_file}"
   printf 'command=' >> "${run_log_file}"
   printf '%q ' "${test_command[@]}" >> "${run_log_file}"
   printf '\n\n' >> "${run_log_file}"
@@ -276,7 +301,7 @@ run_workload_task() (
       --cgroup-manager cgroupfs \
       "${cgroup_parent_args[@]}" \
       --cgroupns "${cgroup_namespace}" \
-      --net "${test_net_mode}" \
+      "${network_args[@]}" \
       "${snapshotter_args[@]}" \
       --runtime "${runtime}" \
       "${image}" \
