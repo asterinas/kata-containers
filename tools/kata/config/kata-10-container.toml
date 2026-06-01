@@ -14,6 +14,6 @@ dial_timeout = 180
 
 [runtime]
 enable_debug = true
-disable_new_netns = true
-internetworking_model = "none"
+disable_new_netns = false
+internetworking_model = "tcfilter"
 create_container_timeout = 180
