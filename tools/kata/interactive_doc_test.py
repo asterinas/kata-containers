@@ -17,6 +17,7 @@ import pexpect
 OUTER_PROMPT = "PEXPECT_OUTER> "
 GUEST_PROMPT = "PEXPECT_GUEST> "
 DEFAULT_WORKLOAD_IMAGE = "docker.io/alpine:latest"
+DEFAULT_END_USER_WORKLOAD_IMAGE = "alpine/curl:8.19.0"
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 ASTERINAS_METADATA_FILE = REPO_ROOT / "tools/kata/config/asterinas-metadata.env"
 ANSI_ESCAPE_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
@@ -343,6 +344,64 @@ def run_guest_workload(shell: DockerShell, workload_image: str, host_proc_versio
     return guest_proc_version.strip(), alpine_release.strip()
 
 
+def run_networked_curl_workload(
+    shell: DockerShell,
+    workload_image: str,
+    host_proc_version: str,
+    container_name: str = "foo",
+) -> tuple[str, str]:
+    announce(f"[guest] pulling network workload image {workload_image}")
+    shell.run(f"nerdctl pull {shlex.quote(workload_image)}", timeout=900)
+    announce(f"[guest] launching networked workload container {container_name} from {workload_image}")
+    shell.run(f"nerdctl rm -f {shlex.quote(container_name)} >/dev/null 2>&1 || true", check=False)
+    try:
+        shell.enter_guest(
+            " ".join(
+                [
+                    "nerdctl",
+                    "run",
+                    "--cgroup-manager",
+                    "cgroupfs",
+                    "--runtime",
+                    "io.containerd.kata.v2",
+                    "--net",
+                    "asterinas",
+                    "--ip",
+                    "10.0.2.15",
+                    "--cgroupns",
+                    "private",
+                    "--rm",
+                    "--name",
+                    shlex.quote(container_name),
+                    "-it",
+                    "--entrypoint",
+                    "/bin/sh",
+                    shlex.quote(workload_image),
+                ]
+            ),
+            timeout=900,
+        )
+        guest_proc_version = shell.run("cat /proc/version")
+        curl_output = shell.run("curl https://asterinas.github.io", timeout=300)
+        shell.exit_guest()
+        shell.run(f"nerdctl rm -f {shlex.quote(container_name)} >/dev/null 2>&1 || true", check=False)
+    except Exception:
+        if shell.prompt == GUEST_PROMPT:
+            try:
+                shell.exit_guest()
+            except Exception:
+                pass
+        dump_kata_debug_logs(shell, f"failed networked nerdctl run for {container_name}")
+        raise
+
+    if guest_proc_version.strip() == host_proc_version.strip():
+        raise ScenarioError("Guest /proc/version unexpectedly matches the outer container /proc/version")
+    if "Asterinas" not in curl_output:
+        raise ScenarioError("Expected curl output from https://asterinas.github.io to mention Asterinas")
+
+    return guest_proc_version.strip(), curl_output.strip()
+
+
 def run_end_user_scenario(args: argparse.Namespace) -> pathlib.Path:
     outer_name = f"kata-doc-end-user-{uuid.uuid4().hex[:12]}"
     transcript_path = args.log_dir / "end-user.transcript.log"
@@ -379,9 +438,13 @@ def run_end_user_scenario(args: argparse.Namespace) -> pathlib.Path:
         status_output = shell.run("./tools/kata/kata_services.sh status")
         if "Kata services are running." not in status_output:
             raise ScenarioError(f"Unexpected service status output:\n{status_output}")
-        guest_proc_version, alpine_release = run_guest_workload(shell, args.workload_image, host_proc_version)
+        guest_proc_version, curl_output = run_networked_curl_workload(
+            shell,
+            args.end_user_workload_image,
+            host_proc_version,
+        )
         announce(f"[end-user] guest /proc/version: {guest_proc_version}")
-        announce(f"[end-user] alpine release: {alpine_release}")
+        announce(f"[end-user] curl output contains Asterinas ({len(curl_output)} bytes)")
         announce("[end-user] stopping Kata background services")
         shell.run("./tools/kata/kata_services.sh stop", timeout=300)
         return transcript_path
@@ -489,6 +552,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--workload-image",
         default=os.environ.get("KATA_DOC_TEST_WORKLOAD_IMAGE", DEFAULT_WORKLOAD_IMAGE),
+    )
+    parser.add_argument(
+        "--end-user-workload-image",
+        default=os.environ.get("KATA_DOC_TEST_END_USER_WORKLOAD_IMAGE", DEFAULT_END_USER_WORKLOAD_IMAGE),
     )
     parser.add_argument(
         "--repo-dir",

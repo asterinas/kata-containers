@@ -126,6 +126,7 @@ jobs:
           python3 -u tools/kata/interactive_doc_test.py \
             --scenario end-user \
             --kata-image "asterinas/kata:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}" \
+            --end-user-workload-image alpine/curl:8.19.0 \
             --log-dir "${KATA_DOC_LOG_DIR}"
 
       - name: Upload End-User Flow Logs
