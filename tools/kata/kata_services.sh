@@ -53,6 +53,7 @@ ensure_test_network() {
   local network_name="${KATA_TEST_NETWORK_NAME:-}"
   local network_subnet="${KATA_TEST_NETWORK_SUBNET:-}"
   local network_gateway="${KATA_TEST_NETWORK_GATEWAY:-}"
+  local create_log
 
   if ! should_manage_test_network; then
     return 0
@@ -68,10 +69,46 @@ ensure_test_network() {
     return 1
   fi
 
-  nerdctl --address "${CONTAINERD_ADDRESS}" network create \
+  create_log="$(mktemp)"
+  if nerdctl --address "${CONTAINERD_ADDRESS}" network create \
     --subnet "${network_subnet}" \
     --gateway "${network_gateway}" \
-    "${network_name}"
+    "${network_name}" >"${create_log}" 2>&1; then
+    filter_nerdctl_network_warnings "${create_log}"
+    rm -f "${create_log}"
+    return 0
+  fi
+
+  filter_nerdctl_network_warnings "${create_log}" >&2
+  rm -f "${create_log}"
+  return 1
+}
+
+filter_nerdctl_network_warnings() {
+  local log_file="$1"
+
+  sed \
+    -e '\#Failed to detect whether .*firewall.* is newer than v1\.1\.0#d' \
+    -e '\#To isolate bridge networks, CNI plugin .*firewall.* needs to be installed#d' \
+    "${log_file}"
+}
+
+remove_test_network() {
+  local network_name="${KATA_TEST_NETWORK_NAME:-}"
+
+  if ! should_manage_test_network; then
+    return 0
+  fi
+
+  if [ ! -S "${CONTAINERD_ADDRESS}" ]; then
+    return 0
+  fi
+
+  if ! nerdctl --address "${CONTAINERD_ADDRESS}" network inspect "${network_name}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  nerdctl --address "${CONTAINERD_ADDRESS}" network rm "${network_name}"
 }
 
 wait_for_socket() {
@@ -207,6 +244,7 @@ stop_service_from_pid_file() {
 }
 
 stop_services() {
+  remove_test_network
   stop_service_from_pid_file "${containerd_pid_file}" "containerd"
   stop_service_from_pid_file "${syslogd_pid_file}" "syslogd"
 }
@@ -306,6 +344,7 @@ main() {
       start_services
       ;;
     stop)
+      kata_load_config "${script_dir}/config/smoke-test.env"
       stop_services
       ;;
     status)
