@@ -463,6 +463,10 @@ ln -sfn "${linux_test_kernel}" "${share_dir}/${LINUX_TEST_KERNEL_LINK}"
 maybe_build_runtime
 
 patch_qemu_config "${defaults_dir}/configuration-qemu.toml" "${defaults_dir}/configuration-asterinas.toml" "${ASTERINAS_KERNEL_PATH}"
+sed -i -E \
+	-e 's#^(kernel_params = ")([^"]+)"#\1\2 loglevel=error"#' \
+	-e 's#^kernel_params = ""#kernel_params = "loglevel=error"#' \
+	"${defaults_dir}/configuration-asterinas.toml"
 patch_qemu_config "${defaults_dir}/configuration-qemu.toml" "${defaults_dir}/configuration-qemu.toml" "/opt/kata/share/kata-containers/${LINUX_TEST_KERNEL_LINK}"
 ln -sfn "configuration-asterinas.toml" "${defaults_dir}/configuration.toml"
 
