@@ -1,4 +1,4 @@
-ARG ASTERINAS_BASE_IMAGE=asterinas/asterinas:0.17.2-20260407
+ARG ASTERINAS_BASE_IMAGE=asterinas/kernel-dev:0.17.2-20260407
 FROM ${ASTERINAS_BASE_IMAGE}
 
 ARG KATA_STATIC_TARBALL_RELEASE_REPO=asterinas/kata-containers
@@ -6,6 +6,7 @@ ARG KATA_STATIC_TARBALL_URL=
 ARG KATA_STATIC_TARBALL_SHA256=
 ARG ASTERINAS_RELEASE_VERSION=
 ARG ASTERINAS_DOCKER_IMAGE_VERSION=
+ARG KATA_CONTAINERS_COMMIT=unknown
 
 WORKDIR /root/kata-containers
 
@@ -25,4 +26,5 @@ RUN KATA_STATIC_TARBALL_RELEASE_REPO="${KATA_STATIC_TARBALL_RELEASE_REPO}" \
     bash /root/kata-containers/tools/kata/kata_env.sh install
 
 RUN printf '%s\n' "${ASTERINAS_RELEASE_VERSION}" > /root/kata-containers/.asterinas-version && \
-    printf '%s\n' "${ASTERINAS_DOCKER_IMAGE_VERSION}" > /root/kata-containers/.asterinas-docker-image-version
+    printf '%s\n' "${ASTERINAS_DOCKER_IMAGE_VERSION}" > /root/kata-containers/.asterinas-docker-image-version && \
+    printf '%s\n' "${KATA_CONTAINERS_COMMIT}" > /root/kata-containers/.kata-containers-commit

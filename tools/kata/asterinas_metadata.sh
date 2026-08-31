@@ -83,7 +83,7 @@ write_metadata_values() {
   write_value "asterinas_commit_date_utc" "${ASTERINAS_COMMIT_DATE_UTC:-}"
   write_value "asterinas_version" "${ASTERINAS_VERSION}"
   write_value "docker_image_version" "${ASTERINAS_DOCKER_IMAGE_VERSION}"
-  write_value "asterinas_builder_image" "asterinas/asterinas:${ASTERINAS_DOCKER_IMAGE_VERSION}"
+  write_value "asterinas_builder_image" "asterinas/kernel-dev:${ASTERINAS_DOCKER_IMAGE_VERSION}"
   write_value "asterinas_metadata_updated_at" "${ASTERINAS_METADATA_UPDATED_AT:-}"
   write_value "asterinas_metadata_source" "${ASTERINAS_METADATA_SOURCE:-file}"
 }

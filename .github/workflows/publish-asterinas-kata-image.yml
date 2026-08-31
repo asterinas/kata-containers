@@ -217,6 +217,7 @@ jobs:
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.description=Asterinas base image with Kata helpers and Kata environment preinstalled
             org.opencontainers.image.version=${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
+            org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.base.name=${{ env.ASTERINAS_BASE_IMAGE }}
             io.asterinas.version=${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}
           build-args: |
@@ -226,6 +227,7 @@ jobs:
             KATA_STATIC_TARBALL_SHA256=${{ needs.resolve-asterinas-metadata.outputs.kata_static_tarball_sha256 }}
             ASTERINAS_RELEASE_VERSION=${{ needs.resolve-asterinas-metadata.outputs.asterinas_version }}
             ASTERINAS_DOCKER_IMAGE_VERSION=${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}
+            KATA_CONTAINERS_COMMIT=${{ github.sha }}
 
       - name: Verify Local Image Layout
         if: ${{ steps.publish.outputs.should_push != 'true' }}
@@ -238,6 +240,7 @@ jobs:
           docker image inspect "${version_image}" >/dev/null
           docker run --rm "${image}" bash -lc '
             test "$(pwd)" = /root/kata-containers
+            test "$(cat /root/kata-containers/.kata-containers-commit)" = "${{ github.sha }}"
             test -x /root/kata-containers/tools/kata/kata_env.sh
             test ! -e /root/asterinas/tools/kata
             test -f /etc/kata-containers/configuration.toml

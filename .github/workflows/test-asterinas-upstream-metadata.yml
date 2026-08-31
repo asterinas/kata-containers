@@ -58,7 +58,7 @@ jobs:
           test "${ASTERINAS_VERSION}" != "from-file-should-not-be-used"
           test -n "${ASTERINAS_DOCKER_IMAGE_VERSION}"
           test "${ASTERINAS_DOCKER_IMAGE_VERSION}" != "from-file-should-not-be-used"
-          test "${ASTERINAS_BUILDER_IMAGE}" = "asterinas/asterinas:${ASTERINAS_DOCKER_IMAGE_VERSION}"
+          test "${ASTERINAS_BUILDER_IMAGE}" = "asterinas/kernel-dev:${ASTERINAS_DOCKER_IMAGE_VERSION}"
           test "${ASTERINAS_METADATA_SOURCE}" = "upstream"
 
           {

@@ -57,7 +57,7 @@ nerdctl rm foo
 ```
 
 ## For Kernel Developers
-Kernel developers typically use the `asterinas/asterinas` container image. When starting the container, you also need to pass the additional arguments required by Kata:
+Kernel developers typically use the `asterinas/kernel-dev` container image. When starting the container, you also need to pass the additional arguments required by Kata:
 
 ```bash
 # Assume you have already cloned the Asterinas source locally.
@@ -76,7 +76,7 @@ docker run --rm -it \
     -v "${ASTERINAS_SRC}:/root/asterinas" \
     -v "${KATA_SRC}:/root/kata-containers" \
     -w /root/kata-containers \
-    asterinas/asterinas:0.17.2-20260407
+    asterinas/kernel-dev:0.18.1-20260805
 ```
 
 After entering the container, you will already be in `/root/kata-containers`.
@@ -109,7 +109,7 @@ You can also point Kata to a locally built guest kernel when installing the
 Kata environment:
 
 ```bash
-tools/kata/kata_env.sh install --kernel /root/asterinas/target/osdk/aster-kernel-osdk-bin.qemu_elf
+tools/kata/kata_env.sh install --kernel /root/asterinas/target/osdk/asterinas-osdk-bin.qemu_elf
 ```
 
 Or edit `/etc/kata-containers/configuration.toml` after installation and set
@@ -117,13 +117,13 @@ Or edit `/etc/kata-containers/configuration.toml` after installation and set
 
 ```toml
 [hypervisor.qemu]
-kernel = "/root/asterinas/target/osdk/aster-kernel-osdk-bin.qemu_elf"
+kernel = "/root/asterinas/target/osdk/asterinas-osdk-bin.qemu_elf"
 ```
 
 Build the kernel with:
 
 ```bash
-cd /root/asterinas && make kernel BOOT_METHOD=qemu-direct
+cd /root/asterinas && make kernel BOOT_METHOD=qemu-direct INITRAMFS=off
 ```
 
 Then run the `nerdctl` command again, and Kata will boot with your local kernel.

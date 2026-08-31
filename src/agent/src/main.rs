@@ -656,8 +656,7 @@ fn init_agent_as_init(logger: &Logger, unified_cgroup_hierarchy: bool) -> Result
         e
     })?;
 
-    fs::remove_file(Path::new("/dev/ptmx"))?;
-    unixfs::symlink(Path::new("/dev/pts/ptmx"), Path::new("/dev/ptmx"))?;
+    setup_ptmx_symlink(Path::new("/dev/ptmx"), Path::new("/dev/pts/ptmx"))?;
 
     unistd::setsid()?;
 
@@ -676,6 +675,17 @@ fn init_agent_as_init(logger: &Logger, unified_cgroup_hierarchy: bool) -> Result
         warn!(logger, "failed to set hostname");
     }
 
+    Ok(())
+}
+
+fn setup_ptmx_symlink(link: &Path, target: &Path) -> Result<()> {
+    match fs::remove_file(link) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+
+    unixfs::symlink(target, link)?;
     Ok(())
 }
 
@@ -714,6 +724,22 @@ mod tests {
     use super::*;
     use test_utils::TestUserType;
     use test_utils::{assert_result, skip_if_not_root, skip_if_root};
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_setup_ptmx_symlink() {
+        let test_dir = tempdir().unwrap();
+        let link = test_dir.path().join("ptmx");
+        let target = Path::new("pts/ptmx");
+
+        setup_ptmx_symlink(&link, target).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), target);
+
+        fs::remove_file(&link).unwrap();
+        fs::write(&link, "old ptmx node").unwrap();
+        setup_ptmx_symlink(&link, target).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), target);
+    }
 
     #[tokio::test]
     async fn test_create_logger_task() {

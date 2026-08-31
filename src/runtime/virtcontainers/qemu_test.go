@@ -82,6 +82,29 @@ func TestQemuKernelParameters(t *testing.T) {
 	testQemuKernelParameters(t, params, expectedOut, false)
 }
 
+func TestQemuAsterinasKernelParameters(t *testing.T) {
+	qemuConfig := newQemuConfig()
+	qemuConfig.KernelPath = "/opt/kata/share/kata-containers/aster-kernel-osdk-bin.qemu_elf"
+	qemuConfig.Debug = true
+	qemuConfig.KernelParams = []Param{
+		{Key: "quiet"},
+		{Key: "agent.log", Value: "debug"},
+	}
+	q := &qemu{
+		config: qemuConfig,
+		arch: &qemuArchBase{
+			kernelParams: []Param{
+				{Key: "no_timer_check"},
+				{Key: "noreplace-smp"},
+			},
+			kernelParamsDebug: []Param{{Key: "debug"}},
+		},
+	}
+
+	expected := fmt.Sprintf("panic=1 nr_cpus=%d selinux=0 agent.log=debug", govmm.MaxVCPUs())
+	assert.Equal(t, expected, q.kernelParameters())
+}
+
 func TestQemuCreateVM(t *testing.T) {
 	assert := assert.New(t)
 

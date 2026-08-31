@@ -211,10 +211,27 @@ func (q *qemu) kernelParameters() string {
 	// honours the last parameter value set and since the config-provided
 	// params are added here, they will take priority over the defaults.
 	params = append(params, q.config.KernelParams...)
+	if isAsterinasKernelPath(q.config.KernelPath) {
+		params = filterAsterinasKernelParams(params)
+	}
 
 	paramsStr := SerializeParams(params, "=")
 
 	return strings.Join(paramsStr, " ")
+}
+
+func filterAsterinasKernelParams(params []Param) []Param {
+	filtered := make([]Param, 0, len(params))
+	for _, param := range params {
+		switch param.Key {
+		case "debug", "no_timer_check", "noreplace-smp", "quiet":
+			continue
+		default:
+			filtered = append(filtered, param)
+		}
+	}
+
+	return filtered
 }
 
 // Adds all capabilities supported by qemu implementation of hypervisor interface

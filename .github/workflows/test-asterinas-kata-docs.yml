@@ -88,6 +88,7 @@ jobs:
         run: |
           set -euxo pipefail
           image="asterinas/kata:${{ needs.resolve-asterinas-metadata.outputs.docker_image_version }}"
+          expected_commit="${{ github.event_name == 'push' && github.sha || '' }}"
           for attempt in $(seq 1 30); do
             if ! docker pull "${image}"; then
               if [ "${attempt}" -eq 30 ]; then
@@ -99,10 +100,13 @@ jobs:
               continue
             fi
 
-            if docker run --rm "${image}" bash -lc '
+            if docker run --rm -e EXPECTED_KATA_COMMIT="${expected_commit}" "${image}" bash -lc '
               test "$(pwd)" = /root/kata-containers
               test -x /root/kata-containers/tools/kata/kata_services.sh
               test ! -e /root/asterinas/tools/kata
+              if [ -n "${EXPECTED_KATA_COMMIT}" ]; then
+                test "$(cat /root/kata-containers/.kata-containers-commit)" = "${EXPECTED_KATA_COMMIT}"
+              fi
             '; then
               exit 0
             fi
@@ -111,11 +115,12 @@ jobs:
               docker run --rm "${image}" bash -lc '
                 pwd
                 ls -ld /root/asterinas /root/kata-containers /root/asterinas/tools/kata /root/kata-containers/tools/kata 2>/dev/null || true
+                cat /root/kata-containers/.kata-containers-commit 2>/dev/null || true
               ' || true
               exit 1
             fi
 
-            echo "Published image does not have the expected /root/kata-containers layout yet; retrying."
+            echo "Published image does not have the expected layout and commit yet; retrying."
             sleep 60
           done
 
