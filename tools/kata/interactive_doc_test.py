@@ -65,9 +65,9 @@ DEFAULT_KATA_IMAGE = (
     else "asterinas/kata:0.17.2-20260407"
 )
 DEFAULT_ASTERINAS_IMAGE = (
-    f"asterinas/asterinas:{ASTERINAS_METADATA['ASTERINAS_DOCKER_IMAGE_VERSION']}"
+    f"asterinas/kernel-dev:{ASTERINAS_METADATA['ASTERINAS_DOCKER_IMAGE_VERSION']}"
     if "ASTERINAS_DOCKER_IMAGE_VERSION" in ASTERINAS_METADATA
-    else "asterinas/asterinas:0.17.2-20260407"
+    else "asterinas/kernel-dev:0.17.2-20260407"
 )
 
 
@@ -509,14 +509,14 @@ def run_kernel_developer_scenario(args: argparse.Namespace) -> pathlib.Path:
         announce(f"[kernel-developer] packaged alpine release: {packaged_alpine_release}")
         announce("[kernel-developer] building local kernel with make kernel BOOT_METHOD=qemu-direct")
         shell.run("cd /root/asterinas && make kernel BOOT_METHOD=qemu-direct", timeout=7200)
-        shell.run("test -f /root/asterinas/target/osdk/aster-kernel-osdk-bin.qemu_elf")
+        shell.run("test -f /root/asterinas/target/osdk/asterinas-osdk-bin.qemu_elf")
         announce("[kernel-developer] switching Kata to the locally built kernel")
         shell.run(
-            "sed -i 's#^kernel = \".*\"#kernel = \"/root/asterinas/target/osdk/aster-kernel-osdk-bin.qemu_elf\"#' "
+            "sed -i 's#^kernel = \".*\"#kernel = \"/root/asterinas/target/osdk/asterinas-osdk-bin.qemu_elf\"#' "
             "/etc/kata-containers/configuration.toml"
         )
         shell.run(
-            "grep -F 'kernel = \"/root/asterinas/target/osdk/aster-kernel-osdk-bin.qemu_elf\"' "
+            "grep -F 'kernel = \"/root/asterinas/target/osdk/asterinas-osdk-bin.qemu_elf\"' "
             "/etc/kata-containers/configuration.toml"
         )
         local_guest_proc_version, local_alpine_release = run_guest_workload(

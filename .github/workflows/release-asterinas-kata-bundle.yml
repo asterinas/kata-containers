@@ -162,16 +162,17 @@ jobs:
           set -euo pipefail
 
           kernel_artifact_dir="${GITHUB_WORKSPACE}/build/asterinas-kernel"
+          kernel_build_name="asterinas-osdk-bin.qemu_elf"
           kernel_artifact_name="aster-kernel-osdk-bin.qemu_elf"
-          tdx_kernel_build_name="aster-kernel-osdk-bin"
-          tdx_kernel_artifact_name="${tdx_kernel_build_name}-tdx"
+          tdx_kernel_build_name="asterinas-osdk-bin"
+          tdx_kernel_artifact_name="aster-kernel-osdk-bin-tdx"
           kernel_artifact="${kernel_artifact_dir}/${kernel_artifact_name}"
           tdx_kernel_artifact="${kernel_artifact_dir}/${tdx_kernel_artifact_name}"
 
           mkdir -p "${kernel_artifact_dir}"
 
           make -C asterinas kernel BOOT_METHOD=qemu-direct
-          install -m 0755 "asterinas/target/osdk/${kernel_artifact_name}" "${kernel_artifact}"
+          install -m 0755 "asterinas/target/osdk/${kernel_build_name}" "${kernel_artifact}"
 
           make -C asterinas kernel BOOT_METHOD=qemu-direct INTEL_TDX=1
           install -m 0755 "asterinas/target/osdk/${tdx_kernel_build_name}" "${tdx_kernel_artifact}"
