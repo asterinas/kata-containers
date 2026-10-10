@@ -156,13 +156,13 @@ jobs:
           set -euo pipefail
           echo "value=$(git -C asterinas rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
 
-      - name: Build qemu-direct Kernels
+      - name: Build vmm-direct Kernels
         shell: bash
         run: |
           set -euo pipefail
 
           kernel_artifact_dir="${GITHUB_WORKSPACE}/build/asterinas-kernel"
-          kernel_build_name="asterinas-osdk-bin.qemu_elf"
+          kernel_build_name="asterinas-osdk-bin.elf"
           kernel_artifact_name="aster-kernel-osdk-bin.qemu_elf"
           tdx_kernel_build_name="asterinas-osdk-bin"
           tdx_kernel_artifact_name="aster-kernel-osdk-bin-tdx"
@@ -171,10 +171,10 @@ jobs:
 
           mkdir -p "${kernel_artifact_dir}"
 
-          make -C asterinas kernel BOOT_METHOD=qemu-direct INITRAMFS=off
+          make -C asterinas kernel BOOT_METHOD=vmm-direct INITRAMFS=off
           install -m 0755 "asterinas/target/osdk/${kernel_build_name}" "${kernel_artifact}"
 
-          make -C asterinas kernel BOOT_METHOD=qemu-direct INITRAMFS=off INTEL_TDX=1
+          make -C asterinas kernel BOOT_METHOD=vmm-direct INITRAMFS=off INTEL_TDX=1
           install -m 0755 "asterinas/target/osdk/${tdx_kernel_build_name}" "${tdx_kernel_artifact}"
 
           test -f "${kernel_artifact}"
